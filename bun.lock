@@ -1,0 +1,39 @@
+{
+  "lockfileVersion": 2,
+  "configVersion": 1,
+  "workspaces": {
+    "": {
+      "name": "dsh-starlong-monorepo",
+      "dependencies": {
+        "dsh-disk-cleanup": "^0.4.1",
+      },
+      "peerDependencies": {
+        "@deepseek-ai/cordis": "^4.1.0",
+        "@deepseek-ai/dsh-client-ui-primitives": "^0.2.2-rc.3",
+        "@deepseek-ai/schemastery": "*",
+      },
+      "optionalPeers": [
+        "@deepseek-ai/cordis",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/schemastery",
+      ],
+    },
+    "packages/dsh-disk-cleanup": {
+      "name": "dsh-disk-cleanup",
+      "version": "0.4.1",
+      "peerDependencies": {
+        "@deepseek-ai/cordis": "^4.1.0",
+        "@deepseek-ai/dsh-client-ui-primitives": "^0.2.2-rc.3",
+        "@deepseek-ai/schemastery": "*",
+      },
+      "optionalPeers": [
+        "@deepseek-ai/cordis",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/schemastery",
+      ],
+    },
+  },
+  "packages": {
+    "dsh-disk-cleanup": ["dsh-disk-cleanup@workspace:packages/dsh-disk-cleanup"],
+  }
+}

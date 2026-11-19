@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Disk cleanup",
+    "description": "Keeps temporary files out of the workspace, and removes expired scratch files on a schedule."
+  }
+}

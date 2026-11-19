@@ -31,6 +31,18 @@ dsh-starlong/
 
 | 模块 | 作用 |
 | --- | --- |
+| dsh-disk-cleanup | shell 临时目录注入、scratch 授权、系统提示与过期清理 |
+
+配置写在 profile 的 `dsh-starlong` 条目下，各模块用自己的键：
+
+```yaml
+- id: dsh-starlong
+  name: 'dsh-starlong'
+  config:
+    dsh-disk-cleanup:
+      enabled: true
+      cleanupMaxAgeDays: 3
+```
 
 ## License
 
