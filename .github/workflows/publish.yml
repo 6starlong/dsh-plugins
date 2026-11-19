@@ -1,0 +1,83 @@
+name: publish
+
+on:
+  push:
+    tags:
+      - 'dsh-starlong@*'
+      - 'dsh-disk-cleanup@*'
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 要发布的包
+        required: true
+        type: choice
+        options:
+          - dsh-starlong
+          - dsh-disk-cleanup
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      package: ${{ steps.pick.outputs.package }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "package=${{ inputs.package }}" >> "$GITHUB_OUTPUT"
+            echo "tag_version=" >> "$GITHUB_OUTPUT"
+          else
+            echo "package=${GITHUB_REF_NAME%@*}" >> "$GITHUB_OUTPUT"
+            echo "tag_version=${GITHUB_REF_NAME#*@}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: 校验 tag 版本与 package.json 一致
+        if: github.event_name != 'workflow_dispatch'
+        run: |
+          pkg="${{ steps.pick.outputs.package }}"
+          tag_ver="${{ steps.pick.outputs.tag_version }}"
+          tag_ver="${tag_ver#v}"
+          dir="."
+          [ "$pkg" = "dsh-disk-cleanup" ] && dir="packages/dsh-disk-cleanup"
+          json_ver=$(node -p "require('./$dir/package.json').version")
+          if [ "$tag_ver" != "$json_ver" ]; then
+            echo "tag 版本 $tag_ver 与 $dir/package.json 的 $json_ver 不一致"
+            exit 1
+          fi
+
+  publish-starlong:
+    needs: resolve
+    if: needs.resolve.outputs.package == 'dsh-starlong'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: node scripts/build.mjs
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-cleanup:
+    needs: resolve
+    if: needs.resolve.outputs.package == 'dsh-disk-cleanup'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/dsh-disk-cleanup
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: node scripts/build.mjs
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
