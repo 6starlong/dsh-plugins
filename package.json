@@ -10,6 +10,9 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./client": {
+      "default": "./lib/client.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json",
@@ -26,20 +29,46 @@
     "registry": "https://registry.npmjs.org/",
     "access": "public"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/6starlong/dsh-starlong.git"
+  },
+  "homepage": "https://github.com/6starlong/dsh-starlong#readme",
+  "bugs": {
+    "url": "https://github.com/6starlong/dsh-starlong/issues"
+  },
+  "icon": "./icon.svg",
+  "workspaces": [
+    "packages/*"
+  ],
+  "dependencies": {
+    "dsh-disk-cleanup": "^0.4.1"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "dsh-client-ui-primitives"
+      ],
+      "platform": "web"
     }
   },
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\""
+    "build": "node scripts/build.mjs",
+    "test": "bun test"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.1.0",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.2-rc.3",
     "@deepseek-ai/schemastery": "*"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-primitives": {
       "optional": true
     },
     "@deepseek-ai/schemastery": {
