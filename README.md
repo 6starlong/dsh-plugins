@@ -1,6 +1,6 @@
 # dsh-starlong
 
-[![npm](https://img.shields.io/npm/v/dsh-starlong?color=444&label=)](https://www.npmjs.com/package/dsh-starlong)
+[![npm](https://img.shields.io/npm/v/dsh-starlong?color=cb3837&label=)](https://www.npmjs.com/package/dsh-starlong)
 
 Starlong 的 DSH 固执己见套件：一个插件，多个可独立开关的模块。
 
@@ -31,7 +31,7 @@ dsh-starlong/
 
 | 模块 | 作用 |
 | --- | --- |
-| dsh-disk-cleanup | shell 临时目录注入、scratch 授权、系统提示与过期清理 |
+| [dsh-disk-cleanup](./packages/dsh-disk-cleanup/README.md) | shell 临时目录注入、scratch 授权、系统提示与过期清理 |
 
 配置写在 profile 的 `dsh-starlong` 条目下，各模块用自己的键：
 
