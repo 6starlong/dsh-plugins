@@ -29,6 +29,9 @@ export { Config }
 /** agent → 已装好包装的工具名。用来避免重复注册，也用来记下「当时还没加载」的工具。 */
 const installed = new WeakMap()
 
+/** 已替换过 execute 的活工具对象；防止 tools/change 重复包裹导致 execute 层层嵌套。 */
+const wrappedTools = new WeakSet()
+
 /** 正在安装中的 agent。注册包装会触发 tools/change，不挡住就会重入、重复注册同一个工具名并抛错。 */
 const installing = new WeakSet()
 
@@ -304,36 +307,39 @@ export function apply(ctx, config) {
   /**
    * 包装 shell 工具：在命令串前注入临时目录。
    * 查工具要带 agent 作用域，否则只读到全局层，工具恒为 undefined。
+   * 直接替换活对象的 execute，而不是 register 同名工具——dsh-ops 已用带 when
+   * 的条件注册占用了 ops_bash 工具名，再 register 会重名冲突抛错。
    * @param {object} agentCtx - agent 作用域上下文。
    * @param {object} agent - 当前 agent，作为工具视图的作用域。
-   * @param {'pwsh' | 'bash'} shell - shell 类型。
-   * @returns {boolean} 是否注册成功。
+   * @param {'pwsh' | 'bash' | 'ops_bash'} shell - 工具名；非 pwsh 一律按 bash 处理。
+   * @returns {boolean} 是否包装成功。
    */
   function wrapShell(agentCtx, agent, shell) {
     if (!cfg.injectShellTemp) return false
     const live = agentCtx.tools.get(shell, agent)
-    if (live === undefined) return false
-    agentCtx.tools.register({
-      ...live,
-      async execute(args, exec) {
-        const input = args !== null && typeof args === 'object' ? args : {}
-        if (typeof input.command !== 'string' || input.command === '') return live.execute(args, exec)
-        const execAgent = exec?.agent ?? exec?.caller
-        const session = execAgent?.session ?? currentSession()
-        const state = resolveState(session)
-        if (state.scratchDir === undefined) return live.execute(args, exec)
-        if (!(await activate(session, state))) return live.execute(args, exec)
-        // activate 成功即保证 scratchDir 有值。
-        const command = injectShellTemp(shell, input.command, state.scratchDir)
-        if (command === input.command) return live.execute(args, exec)
-        return live.execute({ ...input, command }, exec)
-      },
-    })
+    if (live === undefined || live === null || typeof live !== 'object') return false
+    if (typeof live.execute !== 'function' || wrappedTools.has(live)) return wrappedTools.has(live)
+    // 工具定义对象就是注册进 registry 的原对象，替换 execute 即改调用行为。
+    const original = live.execute
+    live.execute = async function (args, exec) {
+      const input = args !== null && typeof args === 'object' ? args : {}
+      if (typeof input.command !== 'string' || input.command === '') return original(args, exec)
+      const execAgent = exec?.agent ?? exec?.caller
+      const session = execAgent?.session ?? currentSession()
+      const state = resolveState(session)
+      if (state.scratchDir === undefined) return original(args, exec)
+      if (!(await activate(session, state))) return original(args, exec)
+      // activate 成功即保证 scratchDir 有值。
+      const command = injectShellTemp(shell, input.command, state.scratchDir)
+      if (command === input.command) return original(args, exec)
+      return original({ ...input, command }, exec)
+    }
+    wrappedTools.add(live)
     return true
   }
 
   /** 只包装 shell 工具；文件工具的落点由模型自己决定。 */
-  const TARGETS = ['pwsh', 'bash']
+  const TARGETS = ['pwsh', 'bash', 'ops_bash']
 
   /**
    * 给一个 agent 装上全部包装；已经装过的跳过。

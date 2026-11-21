@@ -16,8 +16,19 @@ const SCRATCH = join(HOME, 'cache', 'scratch')
 /** 默认配置：不碰真实访问控制列表。 */
 const SAFE = { grantProcessWrite: false }
 
+/** 工具是否被包装：execute 是否已替换成新的函数。 */
+function isWrapped(host, name) {
+  const tool = host.globals.get(name)
+  return !!tool && tool.execute !== host.originals.get(name)
+}
+
+/** 命令串里某段前缀出现的次数，用来确认没有重复包裹。 */
+function countOf(text, needle) {
+  return text.split(needle).length - 1
+}
+
 /**
- * 造一个足够真的假 ctx：记录注册了哪些工具、装了哪些 section。
+ * 造一个足够真的假 ctx：globals 里的工具对象是活引用，get 直接返回它。
  * @param {object} [options] - mode 指定沙箱模式，config 追加插件配置。
  * @returns {object} 假宿主。
  */
@@ -25,22 +36,28 @@ function fakeHost(options = {}) {
   const mode = options.mode ?? 'workspace-write'
   const workspaceRoot = options.workspaceRoot ?? 'C:\\ws'
   const globals = new Map()
+  const originals = new Map()
   const registered = []
   const sections = []
   const listeners = []
   const agents = []
   const writableRoots = []
 
-  const makeTool = (name) => ({
-    name,
-    description: name,
-    parameters: { type: 'object', properties: {} },
-    output: { schema: { type: 'object' }, render: () => [] },
-    async execute(args) { return { path: args.file_path ?? args.command, args } },
-  })
+  const makeTool = (name) => {
+    const execute = async (args) => ({ path: args.file_path ?? args.command, args })
+    const tool = {
+      name,
+      description: name,
+      parameters: { type: 'object', properties: {} },
+      output: { schema: { type: 'object' }, render: () => [] },
+      execute,
+    }
+    originals.set(name, execute)
+    return tool
+  }
 
   // 只放插件真正要包装的 shell 工具；文件工具不参与。
-  for (const n of ['pwsh', 'bash']) globals.set(n, makeTool(n))
+  for (const n of ['pwsh', 'bash', ...(options.tools ?? [])]) globals.set(n, makeTool(n))
 
   const sandboxPolicy = {
     resolve: () => ({ mode, workspaceRoot }),
@@ -101,7 +118,7 @@ function fakeHost(options = {}) {
     ctx.agents = { list: () => agents }
     for (const run of deferred.splice(0)) run()
   }
-  return { ctx, registered, sections, agent, globals, makeAgentCtx, writableRoots, scopeChecks, releaseAgents, config: { ...SAFE, ...options.config } }
+  return { ctx, registered, sections, agent, globals, originals, makeAgentCtx, writableRoots, scopeChecks, releaseAgents, config: { ...SAFE, ...options.config } }
 }
 
 /** 装好插件并等一轮微任务，让 install 跑完。 */
@@ -119,40 +136,49 @@ test('插件导出 name / inject / apply', () => {
 
 test('apply 后只给 pwsh 与 bash 装包装', async () => {
   const host = await boot()
-  assert.deepEqual(host.registered.map(d => d.name).sort(), ['bash', 'pwsh'])
+  assert.equal(isWrapped(host, 'pwsh'), true)
+  assert.equal(isWrapped(host, 'bash'), true)
 })
 
-test('包装后的工具继承原定义的全部字段', async () => {
+test('包装只替换 execute，工具其余字段原地保留', async () => {
   const host = await boot()
-  const wrapped = host.registered.find(d => d.name === 'pwsh')
-  const original = host.globals.get('pwsh')
-  assert.equal(wrapped.description, original.description)
-  assert.deepEqual(wrapped.parameters, original.parameters)
-  assert.equal(typeof wrapped.execute, 'function')
-  assert.notEqual(wrapped.execute, original.execute)
+  const tool = host.globals.get('pwsh')
+  assert.equal(tool.description, 'pwsh')
+  assert.deepEqual(tool.parameters, { type: 'object', properties: {} })
+  assert.equal(typeof tool.execute, 'function')
+  assert.notEqual(tool.execute, host.originals.get('pwsh'))
 })
 
 test('pwsh 命令串被注入 TMP/TEMP', async () => {
   const host = await boot()
-  const wrapped = host.registered.find(d => d.name === 'pwsh')
-  const out = await wrapped.execute({ command: 'Get-ChildItem' }, { agent: host.agent })
+  const out = await host.globals.get('pwsh').execute({ command: 'Get-ChildItem' }, { agent: host.agent })
   assert.ok(out.path.includes("$env:TMP='" + SCRATCH + "'"), out.path)
   assert.ok(out.path.endsWith('Get-ChildItem'))
 })
 
 
+test('ops_bash 也装上包装并注入 TMPDIR/TMP/TEMP', async () => {
+  const host = await boot({ tools: ['ops_bash'] })
+  assert.equal(isWrapped(host, 'pwsh'), true)
+  assert.equal(isWrapped(host, 'bash'), true)
+  assert.equal(isWrapped(host, 'ops_bash'), true)
+  const out = await host.globals.get('ops_bash').execute({ command: 'echo hi' }, { agent: host.agent })
+  for (const name of ['TMPDIR', 'TMP', 'TEMP']) {
+    assert.ok(out.path.includes(`export ${name}='${SCRATCH}'`), out.path)
+  }
+  assert.ok(out.path.endsWith('echo hi'))
+})
+
 test('workspace-write 下给 scratch 追加可写根', async () => {
   const host = await boot({ config: { grantProcessWrite: true } })
-  const wrapped = host.registered.find(d => d.name === 'pwsh')
-  await wrapped.execute({ command: 'Get-ChildItem' }, { agent: host.agent })
+  await host.globals.get('pwsh').execute({ command: 'Get-ChildItem' }, { agent: host.agent })
   assert.ok(host.writableRoots.some(dir => dir.toLowerCase() === SCRATCH.toLowerCase()),
     host.writableRoots.join(','))
 })
 
 test('read-only 下不注入环境', async () => {
   const host = await boot({ mode: 'read-only' })
-  const shell = host.registered.find(d => d.name === 'pwsh')
-  const shellOut = await shell.execute({ command: 'Get-ChildItem' }, { agent: host.agent })
+  const shellOut = await host.globals.get('pwsh').execute({ command: 'Get-ChildItem' }, { agent: host.agent })
   assert.equal(shellOut.path, 'Get-ChildItem')
 })
 
@@ -173,31 +199,31 @@ test('read-only 下提示词 section 不产出文本', async () => {
 
 test('agent/created 事件给新 agent 也装上', async () => {
   const host = await boot()
-  const before = host.registered.length
   const fresh = { ctx: host.makeAgentCtx(), session: { header: { cwd: 'C:\\ws' } } }
   await host.ctx.emit('agent/created', { agent: fresh })
-  assert.equal(host.registered.length - before, 2)
+  assert.equal(isWrapped(host, 'pwsh'), true)
+  assert.equal(isWrapped(host, 'bash'), true)
 })
 
 test('同一个 agent 不会被装两次', async () => {
   const host = await boot()
-  const before = host.registered.length
   await host.ctx.emit('agent/created', { agent: host.agent })
-  assert.equal(host.registered.length, before)
+  const out = await host.globals.get('pwsh').execute({ command: 'Get-ChildItem' }, { agent: host.agent })
+  assert.equal(countOf(out.path, "$env:TMP='"), 1, out.path)
 })
 
 test('enabled=false 时什么都不做', async () => {
   const host = await boot({ config: { enabled: false } })
-  assert.equal(host.registered.length, 0)
+  assert.equal(isWrapped(host, 'pwsh'), false)
+  assert.equal(isWrapped(host, 'bash'), false)
   assert.equal(host.sections.length, 0)
 })
 
-test('注册包装触发的 tools/change 不会导致重复注册', async () => {
+test('tools/change 不会导致重复包裹', async () => {
   const host = await boot()
   await new Promise(r => setImmediate(r))
-  const names = host.registered.map(d => d.name)
-  assert.equal(names.length, 2, '每个工具只该注册一次，实际: ' + names.join(','))
-  assert.deepEqual(names.slice().sort(), ['bash', 'pwsh'])
+  const out = await host.globals.get('pwsh').execute({ command: 'Get-ChildItem' }, { agent: host.agent })
+  assert.equal(countOf(out.path, "$env:TMP='"), 1, out.path)
 })
 
 test('目标工具晚注册时由 tools/change 补装', async () => {
@@ -207,15 +233,16 @@ test('目标工具晚注册时由 tools/change 补装', async () => {
   host.globals.delete('bash')
   apply(host.ctx, host.config)
   await new Promise(r => setImmediate(r))
-  assert.deepEqual(host.registered.map(d => d.name).sort(), ['pwsh'])
+  assert.equal(isWrapped(host, 'pwsh'), true)
+  assert.equal(isWrapped(host, 'bash'), false)
   // 工具后来才注册，再发一次 tools/change
   host.globals.set('bash', removed)
   host.ctx.emit('tools/change', {})
   await new Promise(r => setImmediate(r))
   await new Promise(r => setImmediate(r))
-  const names = host.registered.map(d => d.name)
-  assert.deepEqual(names.slice().sort(), ['bash', 'pwsh'])
-  assert.equal(names.length, 2, '补装不该重复注册已装过的: ' + names.join(','))
+  assert.equal(isWrapped(host, 'bash'), true)
+  const out = await host.globals.get('bash').execute({ command: 'echo hi' }, { agent: host.agent })
+  assert.equal(countOf(out.path, 'export TMPDIR='), 1, out.path)
 })
 test('read-only 下不创建 scratch 目录', async () => {
   const prev = process.env.DSH_HOME
@@ -223,8 +250,7 @@ test('read-only 下不创建 scratch 目录', async () => {
   process.env.DSH_HOME = fresh
   try {
     const host = await boot({ mode: 'read-only' })
-    const wrapped = host.registered.find(d => d.name === 'pwsh')
-    await wrapped.execute({ command: 'Get-ChildItem' }, { agent: host.agent })
+    await host.globals.get('pwsh').execute({ command: 'Get-ChildItem' }, { agent: host.agent })
     assert.equal(existsSync(join(fresh, 'cache')), false, '只读模式不该在缓存目录留下任何东西')
   } finally {
     process.env.DSH_HOME = prev
@@ -238,7 +264,8 @@ test('会话创建时就建好 scratch，不依赖 shell 命令执行', async ()
   process.env.DSH_HOME = fresh
   try {
     const host = await boot()
-    assert.equal(host.registered.length, 2)
+    assert.equal(isWrapped(host, 'pwsh'), true)
+    assert.equal(isWrapped(host, 'bash'), true)
     assert.equal(existsSync(join(fresh, 'cache', 'scratch')), true, '会话创建时就该建好 scratch')
     assert.ok(host.writableRoots.some(dir => dir.toLowerCase() === join(fresh, 'cache', 'scratch').toLowerCase()),
       '不执行 shell 命令也该登记可写根: ' + host.writableRoots.join(','))
