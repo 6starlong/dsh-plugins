@@ -11,7 +11,9 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 /** 包名：plugins.bundle.config 的槽位 key，也是配置表单的命名空间。 */
 const PLUGIN_PACKAGE = 'dsh-starlong'
 /** 本卡片编辑的模块段。 */
-const SECTION = 'dsh-disk-cleanup'
+const DISK_CLEANUP_SECTION = 'dsh-disk-cleanup'
+/** 会话管理模块的段：开关、自动归档开关与闲置天数。 */
+const SESSION_SECTION = 'session-manager'
 /** 本地化命名空间。 */
 const NS = 'settings.starlong.diskCleanup'
 /** 套件仓库：设置页头右侧的 GitHub 入口。 */
@@ -19,6 +21,7 @@ const REPO_URL = 'https://github.com/6starlong/dsh-starlong'
 
 /** 与 lib/config.js 的 schema 默认值一致；输入框留空时置灰显示。 */
 const DEFAULT_MAX_AGE_DAYS = '3'
+const DEFAULT_IDLE_DAYS = '3'
 
 const STYLE = {
   row: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' },
@@ -52,6 +55,12 @@ const REPO_CSS = `
 const MESSAGES = {
   zh: {
     title: '磁盘清理',
+    sessionTitle: '会话管理',
+    sessionOn: '自动归档你一段时间未使用的会话。已置顶的会话永远不会被归档，也不会删除任何内容。',
+    sessionOff: '关闭后不再自动归档闲置会话。',
+    autoArchive: '自动归档闲置会话',
+    idleDays: '自动归档闲置满',
+    idleDaysSuffix: '天的会话',
     description: '把临时文件移出工作区，并按保留天数自动清理过期的暂存文件。',
     auto: '自动清理',
     on: '开启后按保留天数清理临时文件与图片缓存，回收无主原件，并清掉残留空目录。',
@@ -238,6 +247,177 @@ class CleanupCardController {
   }
 }
 
+/**
+ * 会话管理卡片控制器：三个配置全部直写，不设独立保存按钮。
+ * 快照按值缓存，避免 useSyncExternalStore 因新对象无限重渲染。
+ */
+class SessionCardController {
+  constructor(scope) {
+    this.scope = scope
+    this.pending = new Map()
+    this.failed = new Map()
+    this.listeners = new Set()
+    this.cached = undefined
+    // 宿主镜像追上乐观值后清掉；任何配置变化都把新状态推给卡片。
+    this.unsubscribe = scope.subscribe(() => {
+      const value = scope.getSnapshot().value || {}
+      for (const [field, next] of this.pending) {
+        if (value[field] === next) this.pending.delete(field)
+      }
+      this.emit()
+    })
+  }
+  emit() {
+    for (const cb of this.listeners) cb()
+  }
+  snapshot() {
+    const snap = this.scope.getSnapshot()
+    const value = snap.value || {}
+    const get = field => this.pending.has(field) ? this.pending.get(field) : value[field]
+    const enabled = get('enabled') !== false
+    const autoArchive = get('autoArchive') !== false
+    const idleDays = Number(get('idleDays') ?? DEFAULT_IDLE_DAYS)
+    const writable = snap.writable !== false
+    const failed = this.failed.size > 0
+    if (this.cached === undefined || this.cached.enabled !== enabled
+      || this.cached.autoArchive !== autoArchive || this.cached.idleDays !== idleDays
+      || this.cached.writable !== writable || this.cached.failed !== failed) {
+      this.cached = { writable, enabled, autoArchive, idleDays, failed }
+    }
+    return this.cached
+  }
+  commit(field, next) {
+    this.pending.set(field, next)
+    this.failed.delete(field)
+    this.emit()
+    const fail = () => {
+      this.pending.delete(field)
+      this.failed.set(field, true)
+      this.emit()
+    }
+    // 直写必须带上当前 revision，否则宿主按过期写入拒绝，乐观值会回滚成默认值。
+    const revision = this.scope.getSnapshot().revision
+    this.scope.mutate([{ op: 'set', path: [field], value: next }], revision)
+      .then(ok => { if (!ok) fail() })
+      .catch(fail)
+  }
+  inject() {
+    return {
+      hooks: {
+        sessionCard: {
+          subscribe: cb => { this.listeners.add(cb); return () => this.listeners.delete(cb) },
+          getSnapshot: () => this.snapshot(),
+        },
+      },
+      toggleSession: next => this.commit('enabled', next),
+      toggleSessionAuto: next => this.commit('autoArchive', next),
+      setSessionIdleDays: days => this.commit('idleDays', days),
+    }
+  }
+  dispose() {
+    this.unsubscribe()
+    this.listeners.clear()
+  }
+}
+
+/** 会话管理卡片：模块开关 + 自动归档开关 + 行尾天数输入，无保存按钮。 */
+function SessionCard(props) {
+  const { t, useSessionCard } = props
+  const state = useSessionCard(snapshot => snapshot)
+  if (props.view === 'summary') return null
+  const head = jsxs('div', {
+    children: [
+      jsxs('div', {
+        style: STYLE.row,
+        children: [
+          jsx('span', { style: STYLE.cardTitle, children: t('sessionTitle') }),
+          jsx(Switch, {
+            checked: state.enabled,
+            label: t('sessionTitle'),
+            disabled: !state.writable,
+            onChange: props.toggleSession,
+          }),
+        ],
+      }, 'row'),
+    ],
+  }, 'module')
+  if (!state.enabled) {
+    return jsxs('div', {
+      style: STYLE.card,
+      children: [
+        head,
+        state.failed ? jsx('p', { style: STYLE.hint, children: t('saveFailed') }, 'hint') : null,
+      ],
+    })
+  }
+  return jsxs('div', {
+    style: STYLE.card,
+    children: [
+      head,
+      jsx('div', { style: STYLE.divider }, 'divider'),
+      jsxs('div', {
+        style: STYLE.row,
+        children: [
+          jsxs('div', {
+            style: { minWidth: 0 },
+            children: [
+              jsx('div', { style: STYLE.label, children: t('autoArchive') }, 'label'),
+              jsx('p', {
+                style: STYLE.cardDesc,
+                children: t(state.autoArchive ? 'sessionOn' : 'sessionOff'),
+              }, 'hint'),
+            ],
+          }, 'text'),
+          jsx(Switch, {
+            checked: state.autoArchive,
+            label: t('autoArchive'),
+            disabled: !state.writable,
+            onChange: props.toggleSessionAuto,
+          }, 'switch'),
+        ],
+      }, 'toggle'),
+      jsxs('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' },
+        children: [
+          jsx('span', { style: { fontWeight: 400, fontSize: '14px' }, children: t('idleDays') }, 'label'),
+          jsx('input', {
+            type: 'number',
+            min: 1,
+            max: 365,
+            step: 1,
+            defaultValue: String(state.idleDays),
+            disabled: !state.writable,
+            'aria-label': t('idleDays'),
+            style: {
+              width: '56px',
+              padding: '4px 8px',
+              textAlign: 'center',
+              border: '1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35))',
+              borderRadius: '6px',
+              background: 'var(--dsw-alias-bg-layer-2, rgba(128, 128, 128, 0.12))',
+              color: 'inherit',
+              fontWeight: 400,
+              fontSize: '14px',
+            },
+            onBlur: event => {
+              const parsed = Number.parseInt(event.target.value, 10)
+              if (!Number.isFinite(parsed)) {
+                event.target.value = String(state.idleDays)
+                return
+              }
+              const days = Math.min(365, Math.max(1, parsed))
+              event.target.value = String(days)
+              if (days !== state.idleDays) props.setSessionIdleDays(days)
+            },
+            onKeyDown: event => { if (event.key === 'Enter') event.currentTarget.blur() },
+          }, String(state.idleDays)),
+          jsx('span', { style: { fontWeight: 400, fontSize: '14px' }, children: t('idleDaysSuffix') }, 'suffix'),
+        ],
+      }, 'idle'),
+    ],
+  })
+}
+
 /** GitHub 标记图标（16px 官方轮廓）。 */
 function GitHubIcon({ size = 16 }) {
   return jsx('svg', {
@@ -274,6 +454,7 @@ function SettingsPage(props) {
         ],
       }, 'head'),
       jsx(CleanupCard, props, 'cleanup'),
+      jsx(SessionCard, props, 'session'),
     ],
   })
 }
@@ -298,8 +479,13 @@ function apply(ctx) {
   }, 'dsh-starlong 页头样式')
   ctx.effect(() => ctx.locale.register(NS, MESSAGES), 'dsh-starlong 文案')
   const t = ctx.locale.bind(NS)
-  const card = new CleanupCardController(sectionScope(ctx.configForms.get(PLUGIN_PACKAGE), SECTION))
-  ctx.effect(() => () => { try { card.dispose() } catch { /* 宿主已回收表单服务 */ } }, 'dsh-starlong 表单')
+  const scope = ctx.configForms.get(PLUGIN_PACKAGE)
+  const card = new CleanupCardController(sectionScope(scope, DISK_CLEANUP_SECTION))
+  const sessionCard = new SessionCardController(sectionScope(scope, SESSION_SECTION))
+  ctx.effect(() => () => {
+    try { card.dispose() } catch { /* 宿主已回收表单服务 */ }
+    try { sessionCard.dispose() } catch { /* 宿主已回收表单服务 */ }
+  }, 'dsh-starlong 表单')
   ctx.effect(() => ctx.configForms.whileServed([PLUGIN_PACKAGE], () => {
     const disposers = [
       ctx.slots.inject('settings.section', () => ctx.slots.register({
@@ -309,7 +495,12 @@ function apply(ctx) {
         order: 1000,
         label: () => t('page'),
         locale: NS,
-        inject: () => card.inject(),
+        inject: () => {
+          const base = card.inject()
+          const session = sessionCard.inject()
+          // 两张卡片的 hooks 必须合并；浅展开会互相覆盖 hooks 对象。
+          return { ...base, ...session, hooks: { ...base.hooks, ...session.hooks } }
+        },
       }, SettingsPage)),
       ctx.slots.inject('settings.section.icon', () => ctx.slots.register({
         name: 'settings.section.icon',
