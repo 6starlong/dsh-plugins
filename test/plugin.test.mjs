@@ -1,9 +1,9 @@
 import { apply, name } from '../lib/index.js'
 import { apply as applyMnemonPatch } from '../lib/modules/mnemon-patch.js'
-import { apply as applySessionManager, isIdle, lastActivityAt, resolveConfig } from '../lib/modules/session-manager/core.js'
+import { apply as applySessionManager, isIdle, lastActivityAt, ledgerPath, resolveConfig } from '../lib/modules/session-manager/core.js'
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -109,7 +109,9 @@ function sessionFixture({ ids, listIds = ids, events, registry = {}, schedule, l
     sessionPersistence: {
       root,
       locate: locate ?? (header => ({ kind: 'jsonl', path: join(root, '--D-Workspace--', header.id, 'session.v4.jsonl.zstd') })),
-      list: async () => listIds.map(id => ({ header: { id, createdAt: events.get(id)?.[0]?.time ?? Date.now() } })),
+      list: async () => listIds.map(id => ({
+        header: { id, cwd: 'C:\\ws', title: `会话 ${id}`, createdAt: events.get(id)?.[0]?.time ?? Date.now() },
+      })),
       open: async id => ({ read: async () => ({ events: events.get(id) }), close: async () => {} }),
     },
     workspaceRegistry: {
@@ -407,6 +409,39 @@ for (const [label, makeLocate, kept] of [
     fx.cleanup()
   })
 }
+
+test('删除后把会话记进台账，便于事后追溯', async () => {
+  const old = Date.now() - 100 * DAY
+  const fx = sessionFixture({
+    ids: ['gone'],
+    events: new Map([['gone', [{ time: old }]]]),
+  })
+  await fx.run({})
+  const lines = readFileSync(ledgerPath(), 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const entry = lines.at(-1)
+  assert.equal(entry.action, 'delete')
+  assert.equal(entry.id, 'gone')
+  assert.equal(entry.cwd, 'C:\\ws')
+  assert.equal(entry.idleDays, 90)
+  assert.equal(Number.isFinite(Date.parse(entry.at)), true)
+  assert.equal(Number.isFinite(Date.parse(entry.lastActivity)), true)
+  fx.cleanup()
+})
+
+test('归档后同样写台账，并带上归档阈值', async () => {
+  const old = Date.now() - 10 * DAY
+  const fx = sessionFixture({
+    ids: ['stale'],
+    events: new Map([['stale', [{ time: old }]]]),
+  })
+  await fx.run({ autoArchive: true, autoDelete: false, idleDays: 3 })
+  const lines = readFileSync(ledgerPath(), 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const entry = lines.at(-1)
+  assert.equal(entry.action, 'archive')
+  assert.equal(entry.id, 'stale')
+  assert.equal(entry.idleDays, 3)
+  fx.cleanup()
+})
 
 test('读取会话后关闭句柄，不泄漏宿主句柄', async () => {
   const old = Date.now() - 100 * DAY
