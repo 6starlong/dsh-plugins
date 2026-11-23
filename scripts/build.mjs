@@ -12,7 +12,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SRC = join(ROOT, 'src', 'client')
 const LIB = join(ROOT, 'lib')
 const OUTPUT = join(LIB, 'client.js')
-const EXTERNAL = ['@deepseek-ai/dsh-client-ui-primitives', 'react/jsx-runtime']
+const EXTERNAL = ['@deepseek-ai/dsh-client-ui-primitives', 'react/jsx-runtime', 'react']
 
 function rewrite(code) {
   let out = code

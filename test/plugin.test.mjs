@@ -554,3 +554,129 @@ test('子会话 cwd 已在隔离目录时退到注册表工作区', async () => 
   fx.dispose()
 })
 
+
+/** 造一个注册了删除路由的宿主；子代理谱系由 header.origin / parentSession 给出。 */
+function deleteRouteFixture(specs = [], liveIds = []) {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-starlong-delete-route-'))
+  const dirs = new Map()
+  const list = []
+  for (const spec of specs) {
+    const directory = join(root, '--D-Workspace--', spec.id)
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(join(directory, 'session.v4.jsonl.zstd'), '')
+    dirs.set(spec.id, directory)
+    list.push({ header: {
+      id: spec.id, cwd: 'C:\\ws', title: spec.title ?? spec.id,
+      origin: spec.origin, parentSession: spec.parentSession,
+    } })
+  }
+  let handler
+  let registeredPath
+  const webServer = { register: def => { registeredPath = def.path; handler = def.handler; return () => {} } }
+  const ctx = {
+    sessionPersistence: {
+      root,
+      locate: header => ({ kind: 'jsonl', path: join(root, '--D-Workspace--', header.id, 'session.v4.jsonl.zstd') }),
+      list: async () => list,
+      open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }),
+    },
+    workspaceRegistry: { pinnedSessionIds: [], archivedSessionIds: [], archiveSession: async () => {}, unarchiveSession: async () => {} },
+    sessions: { get: id => (liveIds.includes(id) ? { id } : undefined) },
+    agents: { get: () => undefined },
+    get: key => (key === 'webServer' ? webServer : key === 'sessions' ? ctx.sessions : undefined),
+    effect: fn => { fn(); return () => {} },
+    emit: () => {},
+    logger: { info: () => {}, warn: () => {}, debug: () => {} },
+  }
+  applySessionManager(ctx, { 'session-manager': { enabled: true, autoArchive: false, autoDelete: false } })
+  return {
+    ctx, root, dirs,
+    get handler() { return handler },
+    get registeredPath() { return registeredPath },
+    cleanup() { rmSync(root, { recursive: true, force: true }) },
+  }
+}
+
+async function callDeleteRoute(fx, options = {}) {
+  const { body = { sessionId: 'main' }, headers = {}, method = 'POST', remoteAddress = '127.0.0.1' } = options
+  const listeners = {}
+  let raw = ''
+  const request = {
+    method,
+    headers: { host: '127.0.0.1:5124', 'x-starlong-delete': '1', ...headers },
+    socket: { remoteAddress },
+    on: (event, fn) => { listeners[event] = fn },
+  }
+  const response = { status: undefined, payload: undefined, writeHead(status) { this.status = status }, end(text) { this.payload = text ? JSON.parse(text) : undefined } }
+  const pending = fx.handler(request, response)
+  listeners.data?.(JSON.stringify(body))
+  listeners.end?.()
+  await pending
+  return response
+}
+
+test('删除路由注册在固定端点，手动删主会话并清理直系孤儿子代理', async () => {
+  const fx = deleteRouteFixture([
+    { id: 'main' },
+    { id: 'child', origin: 'subagent', parentSession: 'main' },
+    { id: 'fork', parentSession: 'main' },
+    { id: 'live-child', origin: 'subagent', parentSession: 'main' },
+  ], ['live-child'])
+  const res = await callDeleteRoute(fx, { body: { sessionId: 'main' } })
+  assert.equal(fx.registeredPath, '/api/starlong/session-manager/delete')
+  assert.equal(res.status, 200)
+  assert.equal(res.payload.ok, true)
+  assert.deepEqual(res.payload.orphans, ['child'])
+  assert.equal(existsSync(fx.dirs.get('main')), false, '主会话应被删')
+  assert.equal(existsSync(fx.dirs.get('child')), false, '直系孤儿子代理应被顺带删')
+  assert.equal(existsSync(fx.dirs.get('fork')), true, '历史 fork 不带 origin，不能当孤儿删')
+  assert.equal(existsSync(fx.dirs.get('live-child')), true, '仍在内存的子代理不删')
+  const lines = readFileSync(ledgerPath(), 'utf8').trim().split('\n').map(line => JSON.parse(line))
+  const manual = lines.find(entry => entry.id === 'main' && entry.action === 'delete-manual')
+  const orphan = lines.find(entry => entry.id === 'child' && entry.action === 'delete-orphan')
+  assert.ok(manual, '手动删除应写明来源')
+  assert.equal(manual.source, 'manual')
+  assert.equal(orphan?.source, 'orphan')
+  assert.equal(orphan?.parentId, 'main')
+  fx.cleanup()
+})
+
+test('删除路由拒绝非 POST 与非本机同源请求', async () => {
+  const fx = deleteRouteFixture([{ id: 'main' }])
+  const post = await callDeleteRoute(fx, { method: 'GET' })
+  assert.equal(post.status, 405)
+  const noToken = await callDeleteRoute(fx, { headers: { 'x-starlong-delete': undefined } })
+  assert.equal(noToken.status, 403)
+  const remote = await callDeleteRoute(fx, { remoteAddress: '10.0.0.1' })
+  assert.equal(remote.status, 403)
+  const crossSite = await callDeleteRoute(fx, { headers: { 'sec-fetch-site': 'cross-site' } })
+  assert.equal(crossSite.status, 403)
+  const crossOrigin = await callDeleteRoute(fx, { headers: { origin: 'http://evil.example' } })
+  assert.equal(crossOrigin.status, 403)
+  const empty = await callDeleteRoute(fx, { body: {} })
+  assert.equal(empty.status, 400)
+  const missing = await callDeleteRoute(fx, { body: { sessionId: 'not-there' } })
+  assert.equal(missing.status, 404)
+  assert.equal(existsSync(fx.dirs.get('main')), true, '非法请求不得删任何会话')
+  fx.cleanup()
+})
+
+test('删除路由接受 IPv6 回环来源', async () => {
+  const fx = deleteRouteFixture([{ id: 'main' }])
+  const res = await callDeleteRoute(fx, { remoteAddress: '::1', headers: { host: '[::1]:5124' } })
+  assert.equal(res.status, 200)
+  assert.equal(res.payload.ok, true)
+  fx.cleanup()
+})
+
+test('会话目录定位失败时返回错误而非成功', async () => {
+  const fx = deleteRouteFixture([{ id: 'main' }])
+  fx.ctx.sessionPersistence.locate = () => undefined
+  const res = await callDeleteRoute(fx)
+  assert.equal(res.status, 404)
+  assert.equal(res.payload.ok, false)
+  assert.equal(res.payload.error, 'locate-failed')
+  assert.equal(existsSync(fx.dirs.get('main')), true)
+  fx.cleanup()
+})
+
