@@ -2,7 +2,7 @@ import { apply, name } from '../lib/index.js'
 import { apply as applySessionManager, isIdle, lastActivityAt, resolveConfig } from '../lib/modules/session-manager/core.js'
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -89,21 +89,81 @@ const DAY = 24 * 60 * 60 * 1000
 
 const mountsNamed = (host, pluginName) => host.mounts.filter((_cfg, index) => host.mountNames[index] === pluginName)
 
+/**
+ * 造一套官方 JSONL 会话目录与宿主上下文。
+ * run 会等首轮扫描真正结束（核心在 finally 里打 debug），不用固定 sleep 赌时序。
+ */
+function sessionFixture({ ids, listIds = ids, events, registry = {}, schedule, locate, extra = {} }) {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-starlong-sessions-'))
+  const dirs = new Map()
+  for (const id of ids) {
+    const directory = join(root, '--D-Workspace--', id)
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(join(directory, 'session.v4.jsonl.zstd'), '')
+    dirs.set(id, directory)
+  }
+  const disposers = []
+  let settled = false
+  const ctx = {
+    sessionPersistence: {
+      root,
+      locate: locate ?? (header => ({ kind: 'jsonl', path: join(root, '--D-Workspace--', header.id, 'session.v4.jsonl.zstd') })),
+      list: async () => listIds.map(id => ({ header: { id, createdAt: events.get(id)?.[0]?.time ?? Date.now() } })),
+      open: async id => ({ read: async () => ({ events: events.get(id) }), close: async () => {} }),
+    },
+    workspaceRegistry: {
+      pinnedSessionIds: [],
+      archivedSessionIds: [],
+      archiveSession: async () => {},
+      unarchiveSession: async () => {},
+      ...registry,
+    },
+    ...(schedule === undefined ? {} : { schedule }),
+    ...extra,
+    emit: () => {},
+    effect: (fn) => { const dispose = fn(); disposers.push(dispose); return () => dispose() },
+    logger: { info: () => {}, warn: () => {}, debug: () => { settled = true } },
+  }
+  return {
+    ctx,
+    root,
+    dirs,
+    /** 应用配置并等首轮扫描收尾；超时也返回，让断言暴露真实差异。 */
+    async run(config) {
+      applySessionManager(ctx, {
+        'session-manager': { enabled: true, autoArchive: false, autoDelete: true, deleteDays: 90, ...config },
+      })
+      const deadline = Date.now() + 2000
+      while (!settled && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 5))
+      disposers.forEach(dispose => dispose())
+    },
+    cleanup() { rmSync(root, { recursive: true, force: true }) },
+  }
+}
+
 test('会话管理配置解代理并限制天数', () => {
   const cfg = resolveConfig({
     'session-manager': {
       enabled: { get: () => true },
       autoArchive: { get: () => true },
       idleDays: { get: () => 999 },
+      autoDelete: { get: () => false },
+      deleteDays: { get: () => 5000 },
     },
   })
-  assert.deepEqual(cfg, { enabled: true, autoArchive: true, idleDays: 365 })
+  assert.deepEqual(cfg, { enabled: true, autoArchive: true, idleDays: 365, autoDelete: false, deleteDays: 999 })
 })
 
 test('最后活动时间取末条事件，缺省回退创建时间', () => {
   assert.equal(lastActivityAt({ createdAt: 100 }, [{ time: 200 }, { time: 300 }]), 300)
   assert.equal(lastActivityAt({ createdAt: 100 }, []), 100)
   assert.equal(lastActivityAt({ createdAt: '2026-01-01T00:00:00Z' }, []), Date.parse('2026-01-01T00:00:00Z'))
+})
+
+test('系统标记事件不算活动', () => {
+  const events = [{ type: 'turn/end', time: 500 }, { type: 'session/end-seed', time: 9000 }]
+  assert.equal(lastActivityAt({ createdAt: 100 }, events), 500)
+  assert.equal(lastActivityAt({ createdAt: 100 }, [{ type: 'session/end-seed', time: 9000 }]), 100)
 })
 
 test('闲置判定按阈值 inclusive', () => {
@@ -191,16 +251,18 @@ test('关闭自动归档会中断本轮剩余归档', async () => {
   assert.deepEqual(archivedCalls, ['first'])
 })
 
-test('autoArchive=false 时核心不启动扫描', async () => {
+test('归档与删除都关闭时不读会话列表', async () => {
+  let listed = 0
   let archived = false
   const ctx = {
-    sessionPersistence: { list: async () => [] },
+    sessionPersistence: { list: async () => { listed += 1; return [] } },
     workspaceRegistry: { archiveSession: async () => { archived = true } },
     effect: (fn) => { fn(); return () => {} },
     logger: { info: () => {}, warn: () => {} },
   }
-  applySessionManager(ctx, { 'session-manager': { enabled: true, autoArchive: false, idleDays: 3 } })
+  applySessionManager(ctx, { 'session-manager': { enabled: true, autoArchive: false, autoDelete: false, idleDays: 3 } })
   await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(listed, 0, '两个动作都关闭时不做任何扫描')
   assert.equal(archived, false)
 })
 
@@ -249,4 +311,119 @@ test('交给子 fiber 的配置是解代理后的普通值', () => {
   assert.equal(typeof passed.enabled, 'boolean')
   assert.equal(passed.autoCleanup, true)
   assert.equal(passed.cleanupMaxAgeDays, 7)
+})
+test('自动删除只处理非置顶且闲置满阈值的会话', async () => {
+  const old = Date.now() - 100 * DAY
+  const fresh = Date.now() - 1000
+  const fx = sessionFixture({
+    ids: ['gone', 'pinned', 'fresh', 'active'],
+    events: new Map([['gone', [{ time: old }]], ['pinned', [{ time: old }]], ['fresh', [{ time: fresh }]], ['active', [{ time: old }]]]),
+    registry: { pinnedSessionIds: ['pinned'] },
+    extra: { sessions: { get: id => (id === 'active' ? { id } : undefined) } },
+  })
+  await fx.run({})
+  assert.equal(existsSync(fx.dirs.get('gone')), false, '过期会话的目录应被删除')
+  assert.equal(existsSync(fx.dirs.get('pinned')), true, '置顶会话不删')
+  assert.equal(existsSync(fx.dirs.get('fresh')), true, '未满阈值不删')
+  assert.equal(existsSync(fx.dirs.get('active')), true, '内存中仍存活的会话不删')
+  fx.cleanup()
+})
+
+test('删除只认闲置天数，不要求会话已归档', async () => {
+  const old = Date.now() - 100 * DAY
+  const fx = sessionFixture({
+    ids: ['idle'],
+    events: new Map([['idle', [{ time: old }]]]),
+    // 归档集合为空：未归档也要删。
+    registry: { archivedSessionIds: [] },
+  })
+  await fx.run({})
+  assert.equal(existsSync(fx.dirs.get('idle')), false, '未归档但闲置到期的会话也应删除')
+  fx.cleanup()
+})
+
+test('被激活定时任务引用的会话不删除', async () => {
+  const old = Date.now() - 100 * DAY
+  const ids = ['idle', 'scheduled', 'paused', 'newtarget']
+  const fx = sessionFixture({
+    ids,
+    events: new Map(ids.map(id => [id, [{ time: old }]])),
+    // 只有 active 且 target 指向已有会话的任务构成保护；暂停任务与 new 目标不算。
+    schedule: {
+      catalog: async () => [
+        { status: 'active', target: { kind: 'session', sessionId: 'scheduled' }, involvedSessionIds: ['scheduled'] },
+        { status: 'paused', target: { kind: 'session', sessionId: 'paused' }, involvedSessionIds: ['paused'] },
+        { status: 'active', target: { kind: 'new', create: { cwd: 'C:\\ws' } }, involvedSessionIds: ['newtarget'] },
+      ],
+    },
+  })
+  await fx.run({})
+  assert.equal(existsSync(fx.dirs.get('idle')), false, '普通闲置会话应删除')
+  assert.equal(existsSync(fx.dirs.get('scheduled')), true, '激活任务投递的会话不删')
+  assert.equal(existsSync(fx.dirs.get('paused')), false, '暂停任务不构成保护，其会话按闲置删')
+  assert.equal(existsSync(fx.dirs.get('newtarget')), false, 'new 目标没有实体会话，不构成保护')
+  fx.cleanup()
+})
+
+test('读取定时任务失败时跳过本轮删除', async () => {
+  const old = Date.now() - 100 * DAY
+  const fx = sessionFixture({
+    ids: ['idle'],
+    events: new Map([['idle', [{ time: old }]]]),
+    schedule: { catalog: async () => { throw new Error('schedule unavailable') } },
+  })
+  await fx.run({})
+  assert.equal(existsSync(fx.dirs.get('idle')), true, '任务表读不到时宁可漏删')
+  fx.cleanup()
+})
+
+for (const [label, makeLocate, kept] of [
+  ['目录名与会话 id 不一致', ({ root, dirs }) => () => ({ kind: 'jsonl', path: join(dirs.get('not-the-id'), 'session.v4.jsonl.zstd') }), true],
+  ['路径落在存储根之外', ({ root }) => () => ({ kind: 'jsonl', path: join(root, '..', 'sessions-evil', 'idle', 'session.v4.jsonl.zstd') }), false],
+]) {
+  test(`${label}时拒绝删除`, async () => {
+    const old = Date.now() - 100 * DAY
+    const fx = sessionFixture({
+      ids: ['not-the-id'],
+      listIds: ['idle'],
+      events: new Map([['idle', [{ time: old }]]]),
+    })
+    if (kept) {
+      fx.ctx.sessionPersistence.locate = makeLocate(fx)
+    } else {
+      const outside = join(fx.root, '..', 'sessions-evil', 'idle')
+      mkdirSync(outside, { recursive: true })
+      writeFileSync(join(outside, 'session.v4.jsonl.zstd'), '')
+      fx.ctx.sessionPersistence.locate = makeLocate(fx)
+      await fx.run({})
+      assert.equal(existsSync(outside), true, '根外目录不得删除')
+      rmSync(join(fx.root, '..', 'sessions-evil'), { recursive: true, force: true })
+      fx.cleanup()
+      return
+    }
+    await fx.run({})
+    assert.equal(existsSync(fx.dirs.get('not-the-id')), true, '目录名不匹配时不得删除')
+    fx.cleanup()
+  })
+}
+
+test('读取会话后关闭句柄，不泄漏宿主句柄', async () => {
+  const old = Date.now() - 100 * DAY
+  let opened = 0
+  let closed = 0
+  const fx = sessionFixture({
+    ids: ['idle'],
+    events: new Map([['idle', [{ time: old }]]]),
+  })
+  const persistence = fx.ctx.sessionPersistence
+  const originalOpen = persistence.open
+  persistence.open = async id => {
+    opened += 1
+    const handle = await originalOpen(id)
+    return { ...handle, close: async () => { closed += 1 } }
+  }
+  await fx.run({})
+  assert.equal(opened, 1)
+  assert.equal(closed, 1, '每读一个会话都要 close 对应句柄')
+  fx.cleanup()
 })

@@ -12,7 +12,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 const PLUGIN_PACKAGE = 'dsh-starlong'
 /** 本卡片编辑的模块段。 */
 const DISK_CLEANUP_SECTION = 'dsh-disk-cleanup'
-/** 会话管理模块的段：开关、自动归档开关与闲置天数。 */
+/** 会话管理模块的段：开关、自动归档与自动删除配置。 */
 const SESSION_SECTION = 'session-manager'
 /** 本地化命名空间。 */
 const NS = 'settings.starlong.diskCleanup'
@@ -22,6 +22,7 @@ const REPO_URL = 'https://github.com/6starlong/dsh-starlong'
 /** 与 lib/config.js 的 schema 默认值一致；输入框留空时置灰显示。 */
 const DEFAULT_MAX_AGE_DAYS = '3'
 const DEFAULT_IDLE_DAYS = '3'
+const DEFAULT_DELETE_DAYS = '90'
 
 const STYLE = {
   row: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' },
@@ -61,6 +62,11 @@ const MESSAGES = {
     autoArchive: '自动归档闲置会话',
     idleDays: '自动归档闲置满',
     idleDaysSuffix: '天的会话',
+    autoDelete: '自动删除闲置会话',
+    deleteOn: '永久删除长期未使用的会话，删除后无法恢复。',
+    deleteOff: '关闭后不再自动删除会话。',
+    deleteDays: '自动删除闲置满',
+    deleteDaysSuffix: '天的会话',
     description: '把临时文件移出工作区，并按保留天数自动清理过期的暂存文件。',
     auto: '自动清理',
     on: '开启后按保留天数清理临时文件与图片缓存，回收无主原件，并清掉残留空目录。',
@@ -248,12 +254,13 @@ class CleanupCardController {
 }
 
 /**
- * 会话管理卡片控制器：三个配置全部直写，不设独立保存按钮。
+ * 直写配置卡片控制器：字段按声明的类型读默认值，乐观写入并带 revision 提交。
  * 快照按值缓存，避免 useSyncExternalStore 因新对象无限重渲染。
  */
-class SessionCardController {
-  constructor(scope) {
+class DirectCardController {
+  constructor(scope, fields) {
     this.scope = scope
+    this.fields = fields
     this.pending = new Map()
     this.failed = new Map()
     this.listeners = new Set()
@@ -273,17 +280,25 @@ class SessionCardController {
   snapshot() {
     const snap = this.scope.getSnapshot()
     const value = snap.value || {}
-    const get = field => this.pending.has(field) ? this.pending.get(field) : value[field]
-    const enabled = get('enabled') !== false
-    const autoArchive = get('autoArchive') !== false
-    const idleDays = Number(get('idleDays') ?? DEFAULT_IDLE_DAYS)
     const writable = snap.writable !== false
     const failed = this.failed.size > 0
-    if (this.cached === undefined || this.cached.enabled !== enabled
-      || this.cached.autoArchive !== autoArchive || this.cached.idleDays !== idleDays
-      || this.cached.writable !== writable || this.cached.failed !== failed) {
-      this.cached = { writable, enabled, autoArchive, idleDays, failed }
+    const state = { writable, failed }
+    let changed = this.cached === undefined
+      || this.cached.writable !== writable
+      || this.cached.failed !== failed
+    for (const [field, spec] of Object.entries(this.fields)) {
+      const raw = this.pending.has(field) ? this.pending.get(field) : value[field]
+      let current
+      if (spec.type === 'boolean') {
+        current = raw === undefined ? spec.default : raw !== false
+      } else {
+        const parsed = Number(raw ?? spec.default)
+        current = Number.isFinite(parsed) ? parsed : spec.default
+      }
+      if (this.cached === undefined || this.cached[field] !== current) changed = true
+      state[field] = current
     }
+    if (changed) this.cached = state
     return this.cached
   }
   commit(field, next) {
@@ -301,17 +316,15 @@ class SessionCardController {
       .then(ok => { if (!ok) fail() })
       .catch(fail)
   }
-  inject() {
+  inject(hookName, actions) {
     return {
       hooks: {
-        sessionCard: {
+        [hookName]: {
           subscribe: cb => { this.listeners.add(cb); return () => this.listeners.delete(cb) },
           getSnapshot: () => this.snapshot(),
         },
       },
-      toggleSession: next => this.commit('enabled', next),
-      toggleSessionAuto: next => this.commit('autoArchive', next),
-      setSessionIdleDays: days => this.commit('idleDays', days),
+      ...actions,
     }
   }
   dispose() {
@@ -321,6 +334,51 @@ class SessionCardController {
 }
 
 /** 会话管理卡片：模块开关 + 自动归档开关 + 行尾天数输入，无保存按钮。 */
+/**
+ * 天数输入行：标签 + 数字框 + 后缀，整组右对齐。
+ * 归档天数与删除天数共用，钳制范围由 max 决定，回车与失焦都提交。
+ */
+function DaysInput({ label, suffix, value, max, disabled, onCommit }) {
+  return jsxs('div', {
+    style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' },
+    children: [
+      jsx('span', { style: { fontWeight: 400, fontSize: '14px' }, children: label }, 'label'),
+      jsx('input', {
+        type: 'number',
+        min: 1,
+        max,
+        step: 1,
+        defaultValue: String(value),
+        disabled,
+        'aria-label': label,
+        style: {
+          width: '56px',
+          padding: '4px 8px',
+          textAlign: 'center',
+          border: '1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35))',
+          borderRadius: '6px',
+          background: 'var(--dsw-alias-bg-layer-2, rgba(128, 128, 128, 0.12))',
+          color: 'inherit',
+          fontWeight: 400,
+          fontSize: '14px',
+        },
+        onBlur: event => {
+          const parsed = Number.parseInt(event.target.value, 10)
+          if (!Number.isFinite(parsed)) {
+            event.target.value = String(value)
+            return
+          }
+          const days = Math.min(max, Math.max(1, parsed))
+          event.target.value = String(days)
+          if (days !== value) onCommit(days)
+        },
+        onKeyDown: event => { if (event.key === 'Enter') event.currentTarget.blur() },
+      }, String(value)),
+      jsx('span', { style: { fontWeight: 400, fontSize: '14px' }, children: suffix }, 'suffix'),
+    ],
+  }, 'days')
+}
+
 function SessionCard(props) {
   const { t, useSessionCard } = props
   const state = useSessionCard(snapshot => snapshot)
@@ -376,44 +434,44 @@ function SessionCard(props) {
           }, 'switch'),
         ],
       }, 'toggle'),
-      jsxs('div', {
-        style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', marginTop: '16px' },
-        children: [
-          jsx('span', { style: { fontWeight: 400, fontSize: '14px' }, children: t('idleDays') }, 'label'),
-          jsx('input', {
-            type: 'number',
-            min: 1,
-            max: 365,
-            step: 1,
-            defaultValue: String(state.idleDays),
-            disabled: !state.writable,
-            'aria-label': t('idleDays'),
-            style: {
-              width: '56px',
-              padding: '4px 8px',
-              textAlign: 'center',
-              border: '1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35))',
-              borderRadius: '6px',
-              background: 'var(--dsw-alias-bg-layer-2, rgba(128, 128, 128, 0.12))',
-              color: 'inherit',
-              fontWeight: 400,
-              fontSize: '14px',
-            },
-            onBlur: event => {
-              const parsed = Number.parseInt(event.target.value, 10)
-              if (!Number.isFinite(parsed)) {
-                event.target.value = String(state.idleDays)
-                return
-              }
-              const days = Math.min(365, Math.max(1, parsed))
-              event.target.value = String(days)
-              if (days !== state.idleDays) props.setSessionIdleDays(days)
-            },
-            onKeyDown: event => { if (event.key === 'Enter') event.currentTarget.blur() },
-          }, String(state.idleDays)),
-          jsx('span', { style: { fontWeight: 400, fontSize: '14px' }, children: t('idleDaysSuffix') }, 'suffix'),
-        ],
+      jsx(DaysInput, {
+        label: t('idleDays'),
+        suffix: t('idleDaysSuffix'),
+        value: state.idleDays,
+        max: 365,
+        disabled: !state.writable,
+        onCommit: props.setSessionIdleDays,
       }, 'idle'),
+      jsx('div', { style: STYLE.divider }, 'divider-delete'),
+      jsxs('div', {
+        style: STYLE.row,
+        children: [
+          jsxs('div', {
+            style: { minWidth: 0 },
+            children: [
+              jsx('div', { style: STYLE.label, children: t('autoDelete') }, 'label'),
+              jsx('p', {
+                style: STYLE.cardDesc,
+                children: t(state.autoDelete ? 'deleteOn' : 'deleteOff'),
+              }, 'hint'),
+            ],
+          }, 'text'),
+          jsx(Switch, {
+            checked: state.autoDelete,
+            label: t('autoDelete'),
+            disabled: !state.writable,
+            onChange: props.toggleSessionDelete,
+          }, 'switch'),
+        ],
+      }, 'toggle-delete'),
+      jsx(DaysInput, {
+        label: t('deleteDays'),
+        suffix: t('deleteDaysSuffix'),
+        value: state.deleteDays,
+        max: 999,
+        disabled: !state.writable,
+        onCommit: props.setSessionDeleteDays,
+      }, 'delete'),
     ],
   })
 }
@@ -481,7 +539,13 @@ function apply(ctx) {
   const t = ctx.locale.bind(NS)
   const scope = ctx.configForms.get(PLUGIN_PACKAGE)
   const card = new CleanupCardController(sectionScope(scope, DISK_CLEANUP_SECTION))
-  const sessionCard = new SessionCardController(sectionScope(scope, SESSION_SECTION))
+  const sessionCard = new DirectCardController(sectionScope(scope, SESSION_SECTION), {
+    enabled: { type: 'boolean', default: true },
+    autoArchive: { type: 'boolean', default: true },
+    idleDays: { type: 'number', default: DEFAULT_IDLE_DAYS },
+    autoDelete: { type: 'boolean', default: false },
+    deleteDays: { type: 'number', default: DEFAULT_DELETE_DAYS },
+  })
   ctx.effect(() => () => {
     try { card.dispose() } catch { /* 宿主已回收表单服务 */ }
     try { sessionCard.dispose() } catch { /* 宿主已回收表单服务 */ }
@@ -497,7 +561,13 @@ function apply(ctx) {
         locale: NS,
         inject: () => {
           const base = card.inject()
-          const session = sessionCard.inject()
+          const session = sessionCard.inject('sessionCard', {
+            toggleSession: next => sessionCard.commit('enabled', next),
+            toggleSessionAuto: next => sessionCard.commit('autoArchive', next),
+            setSessionIdleDays: days => sessionCard.commit('idleDays', days),
+            toggleSessionDelete: next => sessionCard.commit('autoDelete', next),
+            setSessionDeleteDays: days => sessionCard.commit('deleteDays', days),
+          })
           // 两张卡片的 hooks 必须合并；浅展开会互相覆盖 hooks 对象。
           return { ...base, ...session, hooks: { ...base.hooks, ...session.hooks } }
         },

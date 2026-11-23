@@ -32,7 +32,7 @@ dsh-starlong/
 | 模块 | 作用 |
 | --- | --- |
 | [dsh-disk-cleanup](./packages/dsh-disk-cleanup/README.md) | shell 临时目录注入、scratch 授权、系统提示与过期清理 |
-| session-manager | 会话管理：闲置满设定天数的会话由 DSH 内置归档自动归档 |
+| session-manager | 会话管理：闲置会话自动归档、自动删除 |
 
 配置写在 profile 的 `dsh-starlong` 条目下，各模块用自己的键：
 
@@ -47,6 +47,8 @@ dsh-starlong/
       enabled: true
       autoArchive: true
       idleDays: 3
+      autoDelete: false
+      deleteDays: 90
 ```
 
 ## License
