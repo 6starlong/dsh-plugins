@@ -33,6 +33,7 @@ dsh-starlong/
 | --- | --- |
 | [dsh-disk-cleanup](./packages/dsh-disk-cleanup/README.md) | shell 临时目录注入、scratch 授权、系统提示与过期清理 |
 | session-manager | 会话管理：闲置会话自动归档、自动删除 |
+| [mnemon-patch](./lib/modules/mnemon-patch.js) | 运行时补丁：mnemon 后台会话的日志落到独立项目目录并固定 1 天保留期，不改第三方包文件 |
 
 配置写在 profile 的 `dsh-starlong` 条目下，各模块用自己的键：
 

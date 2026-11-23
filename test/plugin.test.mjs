@@ -1,4 +1,5 @@
 import { apply, name } from '../lib/index.js'
+import { apply as applyMnemonPatch } from '../lib/modules/mnemon-patch.js'
 import { apply as applySessionManager, isIdle, lastActivityAt, resolveConfig } from '../lib/modules/session-manager/core.js'
 import assert from 'node:assert/strict'
 import { after, test } from 'node:test'
@@ -427,3 +428,94 @@ test('读取会话后关闭句柄，不泄漏宿主句柄', async () => {
   assert.equal(closed, 1, '每读一个会话都要 close 对应句柄')
   fx.cleanup()
 })
+
+test('保留期策略优先于配置天数', async () => {
+  const stale = Date.now() - 2 * DAY
+  const ids = ['policy-short', 'policy-long', 'session-real']
+  const policy = (id, fallback) => (id === 'policy-short' ? 1 : fallback)
+  const fx = sessionFixture({
+    ids,
+    events: new Map(ids.map(id => [id, [{ time: stale }]])),
+    extra: { get: key => (key === 'session-retention-policy' ? policy : undefined) },
+  })
+  await fx.run({ deleteDays: 90 })
+  assert.equal(existsSync(fx.dirs.get('policy-short')), false, '策略给 1 天的会话被删')
+  assert.equal(existsSync(fx.dirs.get('policy-long')), true, '策略交回默认天数的会话保留')
+  assert.equal(existsSync(fx.dirs.get('session-real')), true, '未命中策略的会话保留')
+  fx.cleanup()
+})
+
+test('没有策略服务时按配置天数删除', async () => {
+  const stale = Date.now() - 2 * DAY
+  const fx = sessionFixture({
+    ids: ['session-plain'],
+    events: new Map([['session-plain', [{ time: stale }]]]),
+  })
+  await fx.run({ deleteDays: 1 })
+  assert.equal(existsSync(fx.dirs.get('session-plain')), false)
+  fx.cleanup()
+})
+
+/** 造一套能观测 create 参数与工作目录调用的宿主。 */
+function patchFixture(workspacePath) {
+  const calls = []
+  const provided = new Map()
+  const workingDirectory = { set: async (agent, path) => { calls.push({ agent: agent.id, path }) } }
+  const agents = {
+    async create(options) {
+      calls.push(options)
+      const agent = { id: options.sessionId }
+      await options.setup?.({ get: key => (key === 'workingDirectory' ? workingDirectory : undefined) }, agent)
+      return { agent }
+    },
+  }
+  const disposers = []
+  const ctx = {
+    agents,
+    provide: (key, value) => { provided.set(key, value); return () => { provided.delete(key) } },
+    get: key => (key === 'session-retention-policy' ? provided.get(key)
+      : key === 'workingDirectory' ? workingDirectory
+        : key === 'workspaceRegistry' ? { list: () => [{ path: workspacePath }] } : undefined),
+    effect: fn => { disposers.push(fn()); return () => {} },
+  }
+  return { agents, calls, ctx, dispose: () => disposers.forEach(fn => fn()) }
+}
+
+test('mnemon 会话日志落到隔离目录，实际工作目录补回原处', async () => {
+  const workspace = join(HOME, 'workspace')
+  mkdirSync(workspace, { recursive: true })
+  const fx = patchFixture(workspace)
+  applyMnemonPatch(fx.ctx)
+  await fx.agents.create({ sessionId: 'mnemon-task-v1-x', meta: { cwd: workspace }, setup: async () => {} })
+  await fx.agents.create({ sessionId: 'session-real', meta: { cwd: workspace } })
+  assert.equal(fx.calls[0].meta.cwd, join(HOME, 'mnemon'), '名义目录改到 DSH 根下')
+  assert.deepEqual(fx.calls[1], { agent: 'mnemon-task-v1-x', path: workspace }, '实际工作目录补回原处')
+  assert.equal(fx.calls[2].meta.cwd, workspace, '非 mnemon 会话不改写')
+  fx.dispose()
+})
+
+test('mnemon 会话提供 1 天保留期，其余会话交回配置天数', () => {
+  const workspace = join(HOME, 'workspace3')
+  mkdirSync(workspace, { recursive: true })
+  const fx = patchFixture(workspace)
+  applyMnemonPatch(fx.ctx)
+  const policy = fx.ctx.get('session-retention-policy')
+  assert.equal(typeof policy, 'function', '装配后应提供保留期策略')
+  assert.equal(policy('mnemon-task-v1-a', 90), 1)
+  assert.equal(policy('mnemon-run-v1-b', 90), 1)
+  assert.equal(policy('mnemon-review-c', 90), 1)
+  assert.equal(policy('session-real', 90), 90, '非 mnemon 会话沿用配置天数')
+  fx.dispose()
+})
+
+test('子会话 cwd 已在隔离目录时退到注册表工作区', async () => {
+  const workspace = join(HOME, 'workspace2')
+  mkdirSync(workspace, { recursive: true })
+  const fx = patchFixture(workspace)
+  applyMnemonPatch(fx.ctx)
+  await fx.agents.create({ sessionId: 'mnemon-run-v1-y', meta: { cwd: join(HOME, 'mnemon') } })
+  assert.equal(fx.calls[0].meta.cwd, join(HOME, 'mnemon'), '子会话日志同样落在隔离目录')
+  assert.deepEqual(fx.calls[1], { agent: 'mnemon-run-v1-y', path: workspace }, '实际目录退到注册表工作区')
+  fx.dispose()
+})
+
