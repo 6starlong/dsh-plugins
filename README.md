@@ -1,6 +1,6 @@
 # dsh-starlong
 
-[![npm](https://img.shields.io/npm/v/dsh-starlong?color=cb3837&label=)](https://www.npmjs.com/package/dsh-starlong)
+[![npm](https://img.shields.io/npm/v/dsh-starlong?color=cb3837)](https://www.npmjs.com/package/dsh-starlong)
 
 Starlong 的 DSH 固执己见套件：一个插件，多个可独立开关的模块。
 
@@ -20,6 +20,8 @@ dsh-starlong/
 ├─ lib/
 │  ├─ index.js           # 入口，装配模块
 │  ├─ index.d.ts
+│  ├─ config.js          # 设置页 schema
+│  ├─ client.js          # 客户端注入
 │  ├─ core/              # 模块共享代码
 │  └─ modules/           # 功能模块
 ├─ locale/
@@ -32,10 +34,10 @@ dsh-starlong/
 | 模块 | 作用 |
 | --- | --- |
 | [dsh-disk-cleanup](./packages/dsh-disk-cleanup/README.md) | shell 临时目录注入、scratch 授权、系统提示与过期清理 |
-| session-manager | 会话管理：闲置会话自动归档、自动删除；会话右键永久删除，并联清理直系孤儿子代理 |
+| [session-manager](./lib/modules/session-manager/index.js) | 会话管理：闲置会话自动归档、自动删除；会话右键永久删除，并联清理直系孤儿子代理 |
 | [mnemon-patch](./lib/modules/mnemon-patch.js) | 运行时补丁：mnemon 后台会话的日志落到独立项目目录并固定 1 天保留期，不改第三方包文件 |
 
-配置写在 profile 的 `dsh-starlong` 条目下，各模块用自己的键：
+配置写在 profile 的 `dsh-starlong` 条目下，各模块用自己的键；未列字段走默认值：
 
 ```yaml
 - id: dsh-starlong
@@ -43,13 +45,8 @@ dsh-starlong/
   config:
     dsh-disk-cleanup:
       enabled: true
-      cleanupMaxAgeDays: 3
     session-manager:
       enabled: true
-      autoArchive: true
-      idleDays: 3
-      autoDelete: false
-      deleteDays: 90
 ```
 
 ## License

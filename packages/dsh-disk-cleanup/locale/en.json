@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Disk cleanup",
-    "description": "Keeps temporary files out of the workspace, and removes expired scratch files on a schedule."
+    "title": "Disk Cleanup",
+    "description": "Moves Shell temporary files out of the workspace, grants write access to the temp directory, explains where temporary files go via the system prompt, and cleans up expired temporary files and orphaned attachments on a schedule."
   }
 }
