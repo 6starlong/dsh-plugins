@@ -9,6 +9,9 @@ import { Switch, SettingsForm, SettingsFormModel, settingsNumberField, SettingsV
 import { jsx, jsxs } from 'react/jsx-runtime'
 import { useState, useRef, useEffect, useLayoutEffect, useSyncExternalStore } from 'react'
 
+// 构建时由 scripts/build.mjs 从 dsh-disk-cleanup 包版本注入，避免卡片里写死版本号。
+const DISK_CLEANUP_VERSION = '__DISK_CLEANUP_VERSION__'
+
 /** 包名：plugins.bundle.config 的槽位 key，也是配置表单的命名空间。 */
 const PLUGIN_PACKAGE = 'dsh-starlong'
 /** 本卡片编辑的模块段。 */
@@ -33,7 +36,7 @@ const STYLE = {
   label: { fontWeight: 600 },
   hint: { margin: '4px 0 12px', opacity: 0.7, fontSize: '12px' },
   // 每个模块一张卡片；模块之间靠卡片边框与间距分组。
-  card: { border: '1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35))', borderRadius: '8px', padding: '16px', marginBottom: '12px', background: 'var(--dsw-alias-bg-layer-3, rgba(128, 128, 128, 0.05))' },
+  card: { border: '1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35))', borderRadius: '8px', padding: '16px', marginBottom: '12px', background: 'var(--dsh-claude-card, var(--dsw-alias-bg-layer-3, rgba(128, 128, 128, 0.05)))' },
   // 模块关闭时整卡只剩标题行与开关，子设置连同保存按钮一起收起。
   cardTitle: { fontWeight: 600, fontSize: '15px' },
   cardDesc: { margin: '4px 0 0', opacity: 0.7, fontSize: '12px' },
@@ -45,15 +48,47 @@ const STYLE = {
 }
 
 /**
+ * 主题适配器：默认基底是 DSH 客户端变量；命中适配器时只覆盖差异 token。
+ * 加新主题=追加一项 detect + css，不改组件逻辑。
+ */
+const THEME_ADAPTERS = [
+  {
+    id: 'claude',
+    detect: () => {
+      const probe = '--dsh-claude-card'
+      const root = window.getComputedStyle(document.documentElement).getPropertyValue(probe).trim()
+      const body = window.getComputedStyle(document.body).getPropertyValue(probe).trim()
+      return Boolean(root || body)
+    },
+    css: `
+.dsh-starlong-root[data-starlong-theme~='claude']{
+  --sl-accent:var(--dsw-alias-brand-primary);
+  --sl-on-accent:var(--dsw-alias-brand-text,#ffffff);
+  --sl-hover-bg:var(--dsw-alias-brand-primary);
+  --sl-badge-bg:var(--dsw-alias-brand-primary);
+  --sl-badge-fg:var(--dsw-alias-brand-text,#ffffff);
+}`,
+  },
+]
+const THEME_CSS = THEME_ADAPTERS.map(adapter => adapter.css).join('\n')
+
+/**
  * GitHub 入口的悬停动效：底色渐显、图标变亮、
  * 「GitHub」文字从宽度 0 展开。内联样式写不了 :hover，只能注入样式表。
  */
 const REPO_CSS = `
+.dsh-starlong-root{
+  --sl-accent:var(--dsw-alias-border-selected,#adb2b8);
+  --sl-on-accent:var(--dsw-alias-label-primary,inherit);
+  --sl-hover-bg:var(--dsw-alias-bg-module-platform,rgba(128,128,128,.16));
+  --sl-badge-bg:var(--dsw-alias-bg-module-platform,rgba(128,128,128,.16));
+  --sl-badge-fg:var(--dsw-alias-label-secondary,inherit);
+}
 .dsh-starlong-repo{flex:none;display:inline-flex;align-items:center;justify-content:center;height:24px;min-width:24px;padding:0 4px;border-radius:6px;text-decoration:none;transition:background-color .15s ease}
 .dsh-starlong-repo svg{fill:var(--dsw-alias-label-secondary);transition:fill .15s ease}
-.dsh-starlong-repo-label{max-width:0;margin-left:0;overflow:hidden;opacity:0;white-space:nowrap;font-size:13px;font-weight:500;color:var(--dsw-alias-brand-text,#ffffff);transition:max-width .15s ease,margin-left .15s ease,opacity .15s ease}
-.dsh-starlong-repo:hover,.dsh-starlong-repo:focus-visible{background-color:var(--dsw-alias-brand-primary,#d97757)}
-.dsh-starlong-repo:hover svg,.dsh-starlong-repo:focus-visible svg{fill:var(--dsw-alias-brand-text,#ffffff)}
+.dsh-starlong-repo-label{max-width:0;margin-left:0;overflow:hidden;opacity:0;white-space:nowrap;font-size:13px;font-weight:500;color:var(--sl-on-accent);transition:max-width .15s ease,margin-left .15s ease,opacity .15s ease}
+.dsh-starlong-repo:hover,.dsh-starlong-repo:focus-visible{background-color:var(--sl-hover-bg)}
+.dsh-starlong-repo:hover svg,.dsh-starlong-repo:focus-visible svg{fill:var(--sl-on-accent)}
 .dsh-starlong-repo:hover .dsh-starlong-repo-label,.dsh-starlong-repo:focus-visible .dsh-starlong-repo-label{max-width:6em;margin-left:6px;opacity:1}
 .dsh-starlong-btn{appearance:none;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));border-radius:5px;padding:6px 12px;font:inherit;font-size:13px;font-weight:500;line-height:1.35;cursor:pointer;transition:background-color .15s ease,border-color .15s ease,transform .1s ease}
 .dsh-starlong-btn:disabled{opacity:.5;cursor:not-allowed}
@@ -63,6 +98,12 @@ const REPO_CSS = `
 .dsh-starlong-btn-danger{background:transparent;border-color:rgba(217,72,65,.55);color:#e06c66}
 .dsh-starlong-btn-danger:hover:not(:disabled){background:rgba(217,72,65,.14);border-color:rgba(217,72,65,.85)}
 .dsh-starlong-btn-danger:active:not(:disabled){transform:translateY(1px)}
+.dsh-starlong-tabs{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+.dsh-starlong-tab{appearance:none;border:1px solid var(--dsw-alias-border-l1,rgba(128,128,128,.25));border-radius:999px;padding:5px 14px;font:inherit;font-size:13px;font-weight:500;line-height:1.4;color:var(--dsw-alias-label-primary,inherit);background:var(--dsw-alias-bg-layer-1,rgba(128,128,128,.08));cursor:pointer;transition:background-color .15s ease,border-color .15s ease,color .15s ease}
+.dsh-starlong-tab:hover:not(.is-active){border-color:var(--dsw-alias-border-l2,rgba(128,128,128,.35))}
+.dsh-starlong-tab.is-active{background:var(--dsw-alias-bg-layer-1,rgba(128,128,128,.08));border-color:var(--sl-accent);color:var(--dsw-alias-label-primary,inherit);font-weight:600}
+.dsh-starlong-tab:focus-visible{outline:2px solid var(--dsw-alias-border-l3,rgba(128,128,128,.65));outline-offset:2px}
+.dsh-starlong-root .dsh-starlong-version-badge{margin-left:6px;padding:0 5px;border-radius:999px;background:var(--sl-badge-bg);color:var(--sl-badge-fg);font-size:10px;line-height:14px;font-weight:600}
 `
 
 const MESSAGES = {
@@ -159,7 +200,7 @@ function CleanupCard(props) {
       jsxs('div', {
         style: STYLE.row,
         children: [
-          jsx('span', { style: STYLE.cardTitle, children: t('title') }),
+          jsxs('span', { style: { display: 'flex', alignItems: 'center' }, children: [jsx('span', { style: STYLE.cardTitle, children: t('title') }, 'text'), jsx('span', { className: 'dsh-starlong-version-badge', style: { display: 'inline-block', marginTop: '4px' }, children: 'v' + DISK_CLEANUP_VERSION }, 'version')] }, 'heading'),
           jsx(Switch, {
             checked: moduleOn,
             label: t('title'),
@@ -505,9 +546,36 @@ function GitHubIcon({ size = 16 }) {
   })
 }
 
-/** 设置页：左标题右 GitHub，模块各占一张卡片。 */
+/** 只输出命中的主题标记，配色交给 CSS 适配器，组件不感知具体主题。 */
+function useThemeIds() {
+  const [ids, setIds] = useState('')
+  useEffect(() => {
+    const detect = () => {
+      const next = THEME_ADAPTERS.filter(adapter => adapter.detect()).map(adapter => adapter.id).join(' ')
+      setIds(prev => (prev === next ? prev : next))
+    }
+    detect()
+    const observer = new MutationObserver(detect)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] })
+    observer.observe(document.head, { childList: true, subtree: true, attributes: true, attributeFilter: ['style'] })
+    return () => observer.disconnect()
+  }, [])
+  return ids
+}
+
+/** 设置页：左标题右 GitHub，名称下方胶囊切换模块卡片。 */
 function SettingsPage(props) {
+  // 摘要视图只留页头，胶囊与卡片都不渲染，保持宿主概览里的原行为。
+  const summary = props.view === 'summary'
+  const [tab, setTab] = useState('cleanup')
+  const themeIds = useThemeIds()
+  const tabs = [
+    { id: 'cleanup', label: props.t('title') },
+    { id: 'session', label: props.t('sessionTitle') },
+  ]
   return jsxs('div', {
+    className: 'dsh-starlong-root',
+    'data-starlong-theme': themeIds || undefined,
     children: [
       jsxs('div', {
         style: STYLE.pageHead,
@@ -530,8 +598,21 @@ function SettingsPage(props) {
           }),
         ],
       }, 'head'),
-      jsx(CleanupCard, props, 'cleanup'),
-      jsx(SessionCard, props, 'session'),
+      summary ? null : jsx('div', {
+        className: 'dsh-starlong-tabs',
+        role: 'tablist',
+        children: tabs.map(item => jsx('button', {
+          type: 'button',
+          role: 'tab',
+          key: item.id,
+          'aria-selected': tab === item.id,
+          className: 'dsh-starlong-tab' + (tab === item.id ? ' is-active' : ''),
+          onClick: () => setTab(item.id),
+          children: item.label,
+        }, item.id)),
+      }, 'tabs'),
+      tab === 'cleanup' ? jsx(CleanupCard, props, 'cleanup') : null,
+      tab === 'session' ? jsx(SessionCard, props, 'session') : null,
     ],
   })
 }
@@ -685,7 +766,7 @@ function DeleteSessionOverlay({ t }) {
 function apply(ctx) {
   ctx.effect(() => {
     const style = document.createElement('style')
-    style.textContent = REPO_CSS
+    style.textContent = REPO_CSS + '\n' + THEME_CSS
     document.head.appendChild(style)
     return () => style.remove()
   }, 'dsh-starlong 页头样式')

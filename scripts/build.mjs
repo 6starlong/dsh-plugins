@@ -54,7 +54,9 @@ function wrap(body, packageName) {
 }
 
 const pkg = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'))
-const body = await readSources()
+const cleanupPkg = JSON.parse(await readFile(join(ROOT, 'packages', 'dsh-disk-cleanup', 'package.json'), 'utf8'))
+const body = (await readSources()).replace('__DISK_CLEANUP_VERSION__', cleanupPkg.version)
+if (body.includes('__DISK_CLEANUP_VERSION__')) throw new Error('磁盘清理版本占位符未替换')
 await mkdir(LIB, { recursive: true })
 const output = wrap(body, pkg.name)
 await writeFile(OUTPUT, output, 'utf8')
