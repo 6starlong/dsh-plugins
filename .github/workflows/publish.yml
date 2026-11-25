@@ -12,8 +12,8 @@ on:
         required: true
         type: choice
         options:
-          - @6starlong/dsh-plugins
-          - @6starlong/dsh-disk-cleanup
+          - '@6starlong/dsh-plugins'
+          - '@6starlong/dsh-disk-cleanup'
 
 permissions:
   contents: read
