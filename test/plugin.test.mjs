@@ -584,6 +584,7 @@ function deleteRouteFixture(specs = [], liveIds = []) {
     sessions: { get: id => (liveIds.includes(id) ? { id } : undefined) },
     agents: { get: () => undefined },
     get: key => (key === 'webServer' ? webServer : key === 'sessions' ? ctx.sessions : undefined),
+    connection: { requestRejection: () => undefined },
     effect: fn => { fn(); return () => {} },
     emit: () => {},
     logger: { info: () => {}, warn: () => {}, debug: () => {} },
@@ -658,6 +659,18 @@ test('删除路由拒绝非 POST 与非本机同源请求', async () => {
   const missing = await callDeleteRoute(fx, { body: { sessionId: 'not-there' } })
   assert.equal(missing.status, 404)
   assert.equal(existsSync(fx.dirs.get('main')), true, '非法请求不得删任何会话')
+  fx.cleanup()
+})
+
+test('删除路由遵循 DSH connection 官方鉴权', async () => {
+  const fx = deleteRouteFixture([{ id: 'main' }])
+  fx.ctx.connection.requestRejection = () => 401
+  const unauthorized = await callDeleteRoute(fx)
+  assert.equal(unauthorized.status, 401)
+  fx.ctx.connection.requestRejection = () => 403
+  const forbidden = await callDeleteRoute(fx)
+  assert.equal(forbidden.status, 403)
+  assert.equal(existsSync(fx.dirs.get('main')), true, '官方拒绝时不得删任何会话')
   fx.cleanup()
 })
 

@@ -273,6 +273,7 @@ describe('导出路由', () => {
       const ctx = {
         effect: fn => { const dispose = fn(); return () => dispose?.() },
         get: key => (key === 'webServer' ? webServer : undefined),
+        connection: { requestRejection: () => undefined },
         logger: { debug() {}, warn() {} },
       }
       const config = { 'dsh-backup': { enabled: true } }
@@ -295,6 +296,11 @@ describe('导出路由', () => {
       expect(payload.ok).toBe(true)
       expect(payload.includeFiles).toBe(1)
       expect(payload.excludeItems).toBe(2)
+      ctx.connection.requestRejection = () => 403
+      let officialStatus
+      await handlers[exportPath]({ ...baseReq, headers: { ...baseReq.headers, 'x-starlong-backup': '1' }, url: exportPath }, { writeHead: s => { officialStatus = s }, end() {} })
+      expect(officialStatus).toBe(403)
+      ctx.connection.requestRejection = () => undefined
       const zipPath = join(root, 'backups', 'starlong', payload.name)
       expect(existsSync(zipPath)).toBe(true)
       expect(existsSync(zipPath + '.json')).toBe(false)
