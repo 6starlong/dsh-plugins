@@ -1,12 +1,12 @@
 // 由 scripts/build.mjs 生成，不要手改。
 window.__ModuleLoader__.load({
-  id: "dsh-disk-cleanup",
+  id: "@6starlong/dsh-disk-cleanup",
   factory: function (require) {
     var module = { exports: {} };
     var exports = module.exports;
     // ---- index.jsx ----
     /**
-     * dsh-disk-cleanup 的浏览器半边：插件详情页上的「过期清理」配置卡片。
+     * dsh-disk-cleanup 的浏览器半边：「过期清理」配置卡片。
      *
      * 宿主按 schema 自动生成的表单只有字段、没有说明与文案，所以宿主侧关掉自动表单
      * （见 lib/index.js 的 settings.configure），由本文件在 plugins.bundle.config 槽里
@@ -28,7 +28,7 @@ window.__ModuleLoader__.load({
      */
 
     /** 包名：既是 plugins.bundle.config 的槽位 key，也是配置表单的命名空间。 */
-    const PLUGIN_PACKAGE = 'dsh-disk-cleanup'
+    const PLUGIN_PACKAGE = '@6starlong/dsh-disk-cleanup'
     /** 本地化命名空间。 */
     const NS = 'settings.diskCleanup'
 
@@ -186,7 +186,7 @@ window.__ModuleLoader__.load({
       }, CleanupCard))), 'dsh-disk-cleanup 卡片')
     }
 
-    module.exports.name = 'dsh-disk-cleanup'
+    module.exports.name = '@6starlong/dsh-disk-cleanup'
     module.exports.inject = ['slots', 'locale', 'configForms']
     module.exports.apply = apply
     return module.exports;

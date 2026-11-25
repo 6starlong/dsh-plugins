@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-const HOME = mkdtempSync(join(tmpdir(), 'dsh-starlong-'))
+const HOME = mkdtempSync(join(tmpdir(), 'dsh-plugins-'))
 process.env.DSH_HOME = HOME
 after(() => rmSync(HOME, { recursive: true, force: true }))
 
@@ -59,7 +59,7 @@ function mockHost() {
 }
 
 test('导出插件身份', () => {
-  assert.equal(name, 'dsh-starlong')
+  assert.equal(name, '@6starlong/dsh-plugins')
   assert.equal(typeof apply, 'function')
 })
 
@@ -74,16 +74,16 @@ test('enabled 是 volatile：改开关只重挂模块，不重启套件', () => 
   const host = mockHost()
   const section = { enabled: { get: () => true } }
   apply(host, { 'dsh-disk-cleanup': section })
-  assert.equal(mountsNamed(host, 'dsh-disk-cleanup').length, 1)
+  assert.equal(mountsNamed(host, '@6starlong/dsh-disk-cleanup').length, 1)
   assert.equal(host.volatileHandlers.length, 2)
   // 模拟宿主提交 volatile 新值后广播事件。
   section.enabled = { get: () => false }
   host.volatileHandlers[0]([['dsh-disk-cleanup', 'enabled']])
   assert.equal(host.disposes, 1, '旧模块 fiber 应被卸载')
-  assert.equal(mountsNamed(host, 'dsh-disk-cleanup').length, 1, 'enabled=false 不应重挂')
+  assert.equal(mountsNamed(host, '@6starlong/dsh-disk-cleanup').length, 1, 'enabled=false 不应重挂')
   section.enabled = { get: () => true }
   host.volatileHandlers[0]([['dsh-disk-cleanup', 'enabled']])
-  assert.equal(mountsNamed(host, 'dsh-disk-cleanup').length, 2, '重新开启应重挂')
+  assert.equal(mountsNamed(host, '@6starlong/dsh-disk-cleanup').length, 2, '重新开启应重挂')
 })
 
 const DAY = 24 * 60 * 60 * 1000
@@ -95,10 +95,10 @@ const mountsNamed = (host, pluginName) => host.mounts.filter((_cfg, index) => ho
  * run 会等首轮扫描真正结束（核心在 finally 里打 debug），不用固定 sleep 赌时序。
  */
 function sessionFixture({ ids, listIds = ids, events, registry = {}, schedule, locate, extra = {} }) {
-  const root = mkdtempSync(join(tmpdir(), 'dsh-starlong-sessions-'))
+  const root = mkdtempSync(join(tmpdir(), 'dsh-plugins-sessions-'))
   const dirs = new Map()
   for (const id of ids) {
-    const directory = join(root, '--D-Workspace--', id)
+    const directory = join(root, '--Test-Workspace--', id)
     mkdirSync(directory, { recursive: true })
     writeFileSync(join(directory, 'session.v4.jsonl.zstd'), '')
     dirs.set(id, directory)
@@ -108,7 +108,7 @@ function sessionFixture({ ids, listIds = ids, events, registry = {}, schedule, l
   const ctx = {
     sessionPersistence: {
       root,
-      locate: locate ?? (header => ({ kind: 'jsonl', path: join(root, '--D-Workspace--', header.id, 'session.v4.jsonl.zstd') })),
+      locate: locate ?? (header => ({ kind: 'jsonl', path: join(root, '--Test-Workspace--', header.id, 'session.v4.jsonl.zstd') })),
       list: async () => listIds.map(id => ({
         header: { id, cwd: 'C:\\ws', title: `会话 ${id}`, createdAt: events.get(id)?.[0]?.time ?? Date.now() },
       })),
@@ -277,7 +277,7 @@ test('会话管理子 fiber 收到完整配置，不会被二次解包', () => {
     idleDays: { get: () => 3 },
   }
   apply(host, { 'session-manager': section })
-  const passed = mountsNamed(host, 'dsh-starlong-session-manager')[0]
+  const passed = mountsNamed(host, 'dsh-plugins-session-manager')[0]
   assert.equal(passed['session-manager'].autoArchive.get(), false)
   assert.equal(resolveConfig(passed).autoArchive, false)
 })
@@ -290,13 +290,13 @@ test('会话管理配置变化会重挂子 fiber', () => {
     idleDays: { get: () => 3 },
   }
   apply(host, { 'session-manager': section })
-  assert.equal(mountsNamed(host, 'dsh-starlong-session-manager').length, 1)
+  assert.equal(mountsNamed(host, 'dsh-plugins-session-manager').length, 1)
   section.idleDays = { get: () => 7 }
   host.volatileHandlers[1]([['session-manager', 'idleDays']])
-  assert.equal(mountsNamed(host, 'dsh-starlong-session-manager').length, 2)
+  assert.equal(mountsNamed(host, 'dsh-plugins-session-manager').length, 2)
   section.enabled = { get: () => false }
   host.volatileHandlers[1]([['session-manager', 'enabled']])
-  assert.equal(mountsNamed(host, 'dsh-starlong-session-manager').length, 2)
+  assert.equal(mountsNamed(host, 'dsh-plugins-session-manager').length, 2)
   assert.equal(host.disposes, 2)
 })
 
@@ -308,8 +308,8 @@ test('交给子 fiber 的配置是解代理后的普通值', () => {
     cleanupMaxAgeDays: { get: () => 7 },
   }
   apply(host, { 'dsh-disk-cleanup': section })
-  assert.equal(mountsNamed(host, 'dsh-disk-cleanup').length, 1)
-  const passed = mountsNamed(host, 'dsh-disk-cleanup')[0]
+  assert.equal(mountsNamed(host, '@6starlong/dsh-disk-cleanup').length, 1)
+  const passed = mountsNamed(host, '@6starlong/dsh-disk-cleanup')[0]
   assert.equal(passed.enabled, true)
   assert.equal(typeof passed.enabled, 'boolean')
   assert.equal(passed.autoCleanup, true)
@@ -557,11 +557,11 @@ test('子会话 cwd 已在隔离目录时退到注册表工作区', async () => 
 
 /** 造一个注册了删除路由的宿主；子代理谱系由 header.origin / parentSession 给出。 */
 function deleteRouteFixture(specs = [], liveIds = []) {
-  const root = mkdtempSync(join(tmpdir(), 'dsh-starlong-delete-route-'))
+  const root = mkdtempSync(join(tmpdir(), 'dsh-plugins-delete-route-'))
   const dirs = new Map()
   const list = []
   for (const spec of specs) {
-    const directory = join(root, '--D-Workspace--', spec.id)
+    const directory = join(root, '--Test-Workspace--', spec.id)
     mkdirSync(directory, { recursive: true })
     writeFileSync(join(directory, 'session.v4.jsonl.zstd'), '')
     dirs.set(spec.id, directory)
@@ -576,7 +576,7 @@ function deleteRouteFixture(specs = [], liveIds = []) {
   const ctx = {
     sessionPersistence: {
       root,
-      locate: header => ({ kind: 'jsonl', path: join(root, '--D-Workspace--', header.id, 'session.v4.jsonl.zstd') }),
+      locate: header => ({ kind: 'jsonl', path: join(root, '--Test-Workspace--', header.id, 'session.v4.jsonl.zstd') }),
       list: async () => list,
       open: async () => ({ read: async () => ({ events: [] }), close: async () => {} }),
     },

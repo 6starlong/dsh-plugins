@@ -1,13 +1,13 @@
-# dsh-starlong
+# @6starlong/dsh-plugins
 
-[![npm](https://img.shields.io/npm/v/dsh-starlong?color=cb3837)](https://www.npmjs.com/package/dsh-starlong)
+[![npm](https://img.shields.io/npm/v/@6starlong/dsh-plugins?color=cb3837)](https://www.npmjs.com/package/@6starlong/dsh-plugins)
 
-Starlong 的 DSH 固执己见套件：一个插件，多个可独立开关的模块。
+Starlong 的 DSH 插件套件：一个插件，多个可独立开关的模块。
 
 ## Install
 
 ```powershell
-dsh plugin --profile <profile> add dsh-starlong
+dsh plugin --profile <profile> add @6starlong/dsh-plugins
 ```
 
 安装后重启 DSH 生效。
@@ -15,7 +15,7 @@ dsh plugin --profile <profile> add dsh-starlong
 ## Structure
 
 ```text
-dsh-starlong/
+dsh-plugins/
 ├─ cordis.patch.yml      # 插件行，插入 profile
 ├─ lib/
 │  ├─ index.js           # 入口，装配模块
@@ -33,15 +33,15 @@ dsh-starlong/
 
 | 模块 | 作用 |
 | --- | --- |
-| [dsh-disk-cleanup](./packages/dsh-disk-cleanup/README.md) | shell 临时目录注入、scratch 授权、系统提示与过期清理 |
+| [@6starlong/dsh-disk-cleanup](./packages/dsh-disk-cleanup/README.md) | shell 临时目录注入、scratch 授权、系统提示与过期清理 |
 | [session-manager](./lib/modules/session-manager/index.js) | 会话管理：闲置会话自动归档、自动删除；会话右键永久删除，并联清理直系孤儿子代理 |
 | [mnemon-patch](./lib/modules/mnemon-patch.js) | 运行时补丁：mnemon 后台会话的日志落到独立项目目录并固定 1 天保留期，不改第三方包文件 |
 
-配置写在 profile 的 `dsh-starlong` 条目下，各模块用自己的键；未列字段走默认值：
+配置写在 profile 的 `dsh-plugins` 条目下，各模块用自己的键；未列字段走默认值：
 
 ```yaml
-- id: dsh-starlong
-  name: 'dsh-starlong'
+- id: dsh-plugins
+  name: '@6starlong/dsh-plugins'
   config:
     dsh-disk-cleanup:
       enabled: true

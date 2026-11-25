@@ -185,7 +185,7 @@ test('read-only 下不注入环境', async () => {
 test('系统提示 section 被注册且 order 紧跟 TOOL_WRITE', async () => {
   const host = await boot()
   assert.equal(host.sections.length, 1)
-  assert.equal(host.sections[0].name, 'dsh-disk-cleanup')
+  assert.equal(host.sections[0].name, '@6starlong/dsh-disk-cleanup')
   assert.equal(host.sections[0].order, 1201)
   const text = host.sections[0].text({ agent: host.agent })
   assert.ok(text.includes(SCRATCH), text)

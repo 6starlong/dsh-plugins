@@ -39,7 +39,7 @@ export function alreadySets(shell, command, name) {
 export function alreadySetsTemp(shell, command) {
   return alreadySets(shell, command, 'TMP')
     || alreadySets(shell, command, 'TEMP')
-    || (shell === 'bash' && alreadySets(shell, command, 'TMPDIR'))
+    || (shell !== 'pwsh' && alreadySets(shell, command, 'TMPDIR'))
 }
 
 /**
@@ -83,7 +83,7 @@ export function injectShellEnv(shell, command, entries) {
  */
 export function injectShellTemp(shell, command, dir) {
   if (typeof dir !== 'string' || dir === '') return command
-  const entries = shell === 'bash'
+  const entries = shell !== 'pwsh'
     ? [['TMPDIR', dir], ['TMP', dir], ['TEMP', dir]]
     : [['TMP', dir], ['TEMP', dir]]
   return injectShellEnv(shell, command, entries)

@@ -19,7 +19,7 @@ import { grantProcessWrite, revokeAll } from './acl.js'
 import { scratchPromptText } from './prompt.js'
 
 /** Cordis 插件身份（与包名一致）。 */
-export const name = 'dsh-disk-cleanup'
+export const name = '@6starlong/dsh-disk-cleanup'
 /** 必需服务：工具注册表与 agent 注册表。 */
 export const inject = ['tools', 'agents']
 
@@ -432,7 +432,7 @@ export function apply(ctx, config) {
         /* 宿主未提供顺序表时保留兜底值 */
       }
       child.systemPrompt.section({
-        name: 'dsh-disk-cleanup',
+        name: '@6starlong/dsh-disk-cleanup',
         order,
         text: (context) => {
           const session = context?.agent?.session ?? currentSession()

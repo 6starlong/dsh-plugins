@@ -1,10 +1,10 @@
 # dsh-disk-cleanup 组合包补丁：把插件行插入 profile。
 # 本补丁按 id 覆盖；用户可在自己 profile 的 cordis.patch.yml 里覆盖本行整个 config。
-# 插件页上的「过期清理」卡片只改 autoCleanup 与 cleanupMaxAgeDays，其余字段在这里改。
+# 「过期清理」配置区只改 autoCleanup 与 cleanupMaxAgeDays，其余字段在这里改。
 #
 # 示例（用户 profile 的 cordis.patch.yml）：
 #   - id: dsh-disk-cleanup
-#     name: 'dsh-disk-cleanup'
+#     name: '@6starlong/dsh-disk-cleanup'
 #     config:
 #       enabled: true
 #       # scratchDir: ''            # 留空 = 默认暂存目录并自动清理；自定义目录不清理
@@ -16,7 +16,7 @@
 #
 - insert:
     - id: dsh-disk-cleanup
-      name: 'dsh-disk-cleanup'
+      name: '@6starlong/dsh-disk-cleanup'
       config:
         enabled: true
         injectShellTemp: true

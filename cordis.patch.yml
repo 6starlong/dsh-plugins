@@ -1,8 +1,8 @@
-# dsh-starlong 组合包补丁：把插件行插入 profile。
+# dsh-plugins 组合包补丁：把插件行插入 profile。
 # 按 id 覆盖；用户可在自己 profile 的 cordis.patch.yml 里覆盖本行 config。
 # 各模块配置写在自己的段里，如 config['dsh-disk-cleanup']；不写则用模块默认值。
 #
 - insert:
-    - id: dsh-starlong
-      name: 'dsh-starlong'
+    - id: dsh-plugins
+      name: '@6starlong/dsh-plugins'
       config: {}

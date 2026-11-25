@@ -1,10 +1,10 @@
-# dsh-disk-cleanup
+# @6starlong/dsh-disk-cleanup
 
-[![npm](https://img.shields.io/npm/v/dsh-disk-cleanup?color=cb3837)](https://www.npmjs.com/package/dsh-disk-cleanup) [![downloads](https://img.shields.io/npm/dm/dsh-disk-cleanup?color=4c1)](https://www.npmjs.com/package/dsh-disk-cleanup) [![license](https://img.shields.io/npm/l/dsh-disk-cleanup?color=007ec6)](https://www.npmjs.com/package/dsh-disk-cleanup)
+[![npm](https://img.shields.io/npm/v/@6starlong/dsh-disk-cleanup?color=cb3837)](https://www.npmjs.com/package/@6starlong/dsh-disk-cleanup) [![downloads](https://img.shields.io/npm/dm/@6starlong/dsh-disk-cleanup?color=4c1)](https://www.npmjs.com/package/@6starlong/dsh-disk-cleanup) [![license](https://img.shields.io/npm/l/@6starlong/dsh-disk-cleanup?color=007ec6)](https://www.npmjs.com/package/@6starlong/dsh-disk-cleanup)
 
 临时文件集中写到缓存目录并自动过期回收，工作区只留用户要的文件。
 
-模型写出的探针脚本默认落在工作区内。这个插件给 shell 命令注入临时目录变量、补齐 scratch 目录的写权限、在系统提示里说明临时文件该写哪里，并按保留天数清理过期文件与无主附件。不改写工具入参的路径：写哪里由提示词引导，不由插件替模型决定。
+模型写出的探针脚本默认落在工作区内。这个插件给 shell 命令注入临时目录变量、补齐 scratch 目录的写入权限、在系统提示里说明临时文件该写哪里，并按保留天数清理过期文件与无主附件。不改写工具入参的路径：写哪里由提示词引导，不由插件替模型决定。
 
 ## 它做什么
 
@@ -32,25 +32,25 @@
 - **何时清**：插件加载时一次，之后每 6 小时最多一次。
 - 配置里自己指定 `scratchDir` 时，那个目录不自动清。
 
-插件详情页的「过期清理」卡片可以关闭自动清理、改保留天数（1–365，留空恢复默认的 3 天）。
+「过期清理」配置区可以关掉自动清理、调整保留天数（1–365，留空恢复默认 3 天）。
 
 ## 安装
 
 在 DSH 的插件管理页里安装，或者用命令行装：
 
 ```powershell
-dsh plugin --profile <profile> add dsh-disk-cleanup
+dsh plugin --profile <profile> add @6starlong/dsh-disk-cleanup
 ```
 
 安装后重启 DSH 生效。
 
 ## 配置
 
-插件详情页的「过期清理」卡片管 `autoCleanup` 与 `cleanupMaxAgeDays`；其余字段在 profile 的 `cordis.patch.yml` 里覆盖：
+「过期清理」配置区只管 `autoCleanup` 与 `cleanupMaxAgeDays`；其余字段在 profile 的 `cordis.patch.yml` 里覆盖：
 
 ```yaml
 - id: dsh-disk-cleanup
-  name: 'dsh-disk-cleanup'
+  name: '@6starlong/dsh-disk-cleanup'
   config:
     enabled: true
     scratchDir: ''              # 留空 = 默认暂存目录并自动清理

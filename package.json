@@ -1,7 +1,7 @@
 {
-  "name": "dsh-starlong",
-  "version": "0.2.0",
-  "description": "Starlong 的 DSH 固执己见套件：一个插件，多个可独立开关的模块。",
+  "name": "@6starlong/dsh-plugins",
+  "version": "0.1.0",
+  "description": "Starlong 的 DSH 插件套件：一个插件，多个可独立开关的模块。",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
@@ -31,18 +31,18 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/6starlong/dsh-starlong.git"
+    "url": "git+https://github.com/6starlong/dsh-plugins.git"
   },
-  "homepage": "https://github.com/6starlong/dsh-starlong#readme",
+  "homepage": "https://github.com/6starlong/dsh-plugins#readme",
   "bugs": {
-    "url": "https://github.com/6starlong/dsh-starlong/issues"
+    "url": "https://github.com/6starlong/dsh-plugins/issues"
   },
   "icon": "./icon.svg",
   "workspaces": [
     "packages/*"
   ],
   "dependencies": {
-    "dsh-disk-cleanup": "^0.4.1"
+    "@6starlong/dsh-disk-cleanup": "^0.4.4"
   },
   "dsh": {
     "bundle": {
