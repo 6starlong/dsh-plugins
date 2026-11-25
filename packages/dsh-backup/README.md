@@ -2,6 +2,8 @@
 
 DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置与数据原样打包成 zip。排除的只是可再生文件与运行时产物，进包字节不变，解压即可还原，不重建配置语义。
 
+作为独立 npm 包 `@6starlong/dsh-backup` 开发；套件里由 `lib/modules/backup.js` 适配器接线，客户端卡片仍在套件里。
+
 ## 它做什么
 
 | 机制 | 做法 |
@@ -23,17 +25,17 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 3. **归属判断**：能确认是客户端底座或依赖的目录整棵排除，能确认是用户数据的目录整棵保留；形态规则不穿透这两类。
 4. **形态兜底**：只对未归类的路径，按跨平台通用约定排除可再生的二进制、缓存目录、临时与锁文件。
 
-音视频、图片、压缩包不按后缀排除，由归属决定——同一份语音在附件里要留、在缓存里要排，光看后缀判不出来。
-
-具体词表在 `rules.js` 里维护，这里只说明判定逻辑。
+音视频、图片、压缩包不按后缀排除，由归属决定——同一份语音在附件里要留、在缓存里要排，光看后缀判不出来。具体词表在 `lib/rules.js` 里维护，这里只说明判定逻辑。
 
 ## 文件
 
 | 文件 | 职责 |
 |---|---|
-| `index.js` | 装配模块，注册 export/download/tree/preset 四个本地路由 |
-| `rules.js` | 默认词表、匹配器、扫描树、目录树描述与统计 |
-| `zip.js` | 零依赖 ZIP writer（store 模式，单包上限 4 GiB） |
+| `lib/index.js` | 装配模块，注册 export/download/tree/preset 四个本地路由 |
+| `lib/rules.js` | 默认词表、匹配器、扫描树、目录树描述与统计 |
+| `lib/zip.js` | 零依赖 ZIP writer（store 模式，单包上限 4 GiB） |
+| `lib/config.js` | 配置 schema：enabled / repo / intervalHours |
+| `lib/schema.js` | schemastery 解析与找不到时的空壳兜底 |
 
 ## 接口
 
@@ -43,7 +45,6 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 | `/api/starlong/dsh-backup/preset` | list/save/load/delete 命名预设 |
 | `/api/starlong/dsh-backup/export` | 按 overrides+regex 扫描并写 zip |
 | `/api/starlong/dsh-backup/download` | 下载已导出的 zip |
-
 
 ## 配置
 

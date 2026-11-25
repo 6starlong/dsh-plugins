@@ -42,7 +42,8 @@
     "packages/*"
   ],
   "dependencies": {
-    "@6starlong/dsh-disk-cleanup": "^0.4.5"
+    "@6starlong/dsh-disk-cleanup": "^0.4.5",
+    "@6starlong/dsh-backup": "^0.1.0"
   },
   "dsh": {
     "bundle": {

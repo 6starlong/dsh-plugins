@@ -5,6 +5,7 @@ on:
     tags:
       - '@6starlong/dsh-plugins@*'
       - '@6starlong/dsh-disk-cleanup@*'
+      - '@6starlong/dsh-backup@*'
   workflow_dispatch:
     inputs:
       package:
@@ -14,6 +15,7 @@ on:
         options:
           - '@6starlong/dsh-plugins'
           - '@6starlong/dsh-disk-cleanup'
+          - '@6starlong/dsh-backup'
 
 permissions:
   contents: read
@@ -43,6 +45,7 @@ jobs:
           tag_ver="${tag_ver#v}"
           dir="."
           [ "$pkg" = "@6starlong/dsh-disk-cleanup" ] && dir="packages/dsh-disk-cleanup"
+          [ "$pkg" = "@6starlong/dsh-backup" ] && dir="packages/dsh-backup"
           json_ver=$(node -p "require('./$dir/package.json').version")
           if [ "$tag_ver" != "$json_ver" ]; then
             echo "tag 版本 $tag_ver 与 $dir/package.json 的 $json_ver 不一致"
@@ -78,6 +81,23 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
       - run: node scripts/build.mjs
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-backup:
+    needs: resolve
+    if: needs.resolve.outputs.package == '@6starlong/dsh-backup'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/dsh-backup
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
       - run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

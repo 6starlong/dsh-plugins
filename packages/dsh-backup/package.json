@@ -1,0 +1,70 @@
+{
+  "name": "@6starlong/dsh-backup",
+  "version": "0.1.0",
+  "description": "DSH 备份模块：按归属优先、形态兜底的规则扫描 ~/.dsh，把用户数据原样打包成 zip，支持目录勾选、正则与命名预设。",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "icon.svg"
+  ],
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/6starlong/dsh-plugins.git",
+    "directory": "packages/dsh-backup"
+  },
+  "homepage": "https://github.com/6starlong/dsh-plugins/tree/main/packages/dsh-backup#readme",
+  "bugs": {
+    "url": "https://github.com/6starlong/dsh-plugins/issues"
+  },
+  "icon": "./icon.svg",
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.1.0",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "backup",
+    "zip"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.1-rc.2"
+  }
+}

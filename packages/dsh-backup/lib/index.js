@@ -7,6 +7,8 @@ import { basename, join } from 'node:path'
 import { buildMatcher, dshHome, describeChildren, scanTree, DEFAULT_PRESET } from './rules.js'
 import { writeZip } from './zip.js'
 
+export { Config } from './config.js'
+
 export const name = 'dsh-plugins-dsh-backup'
 export const inject = []
 

@@ -27,7 +27,7 @@ const REPO_URL = 'https://github.com/6starlong/dsh-plugins'
 /** 手动删除端点与同源头：与服务端 session-manager/core.js 对齐。 */
 const DELETE_ROUTE = '/api/starlong/session-manager/delete'
 const DELETE_TOKEN_HEADER = 'x-starlong-delete'
-/** 本地备份端点与同源头：与服务端 dsh-backup/index.js 对齐。 */
+/** 本地备份端点与同源头：与服务端包 packages/dsh-backup/lib/index.js 对齐。 */
 const BACKUP_EXPORT_ROUTE = '/api/starlong/dsh-backup/export'
 const BACKUP_DOWNLOAD_ROUTE = '/api/starlong/dsh-backup/download'
 const BACKUP_TOKEN_HEADER = 'x-starlong-backup'

@@ -2,9 +2,9 @@ import { describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildMatcher, buildDecider, DEFAULT_PRESET, describeChildren, dshHome, parseList, parseRegex, scanTree } from '../lib/modules/dsh-backup/rules.js'
-import { apply } from '../lib/modules/dsh-backup/index.js'
-import { crc32, writeZip } from '../lib/modules/dsh-backup/zip.js'
+import { buildMatcher, buildDecider, DEFAULT_PRESET, describeChildren, dshHome, parseList, parseRegex, scanTree } from '../lib/rules.js'
+import { apply } from '../lib/index.js'
+import { crc32, writeZip } from '../lib/zip.js'
 
 describe('备份规则', () => {
   it('词表按逗号、中文逗号与换行拆分', () => {
