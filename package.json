@@ -1,6 +1,6 @@
 {
   "name": "@6starlong/dsh-plugins",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Starlong 的 DSH 插件套件：一个插件，多个可独立开关的模块。",
   "type": "module",
   "main": "lib/index.js",
@@ -42,7 +42,7 @@
     "packages/*"
   ],
   "dependencies": {
-    "@6starlong/dsh-disk-cleanup": "^0.4.4"
+    "@6starlong/dsh-disk-cleanup": "^0.4.5"
   },
   "dsh": {
     "bundle": {

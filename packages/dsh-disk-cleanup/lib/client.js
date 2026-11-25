@@ -12,8 +12,8 @@ window.__ModuleLoader__.load({
      * （见 lib/index.js 的 settings.configure），由本文件在 plugins.bundle.config 槽里
      * 渲染一张自己的卡片。
      *
-     * 槽位 key 与配置表单的命名空间都用包名：宿主按包名判断插件详情页要不要出配置区，
-     * 也按同名的 profile 条目读配置。
+     * 槽位 key 按 npm 包名（宿主按包名判断详情页要不要出配置区），配置表单的
+     * 命名空间按 bundle id 短名（scope 化后两者不同，不能共用一个常量）。
      *
      * 这张卡片只碰 autoCleanup（是否自动清理）与 cleanupMaxAgeDays（保留天数）两个
      * volatile 字段，其余字段仍走 cordis.patch.yml。
@@ -27,8 +27,10 @@ window.__ModuleLoader__.load({
      * 宿主 ModuleLoader 读的就是这个导出对象，闭包产物里不能写 export。
      */
 
-    /** 包名：既是 plugins.bundle.config 的槽位 key，也是配置表单的命名空间。 */
+    /** npm 包名：plugins.bundle.config 的槽位 key。 */
     const PLUGIN_PACKAGE = '@6starlong/dsh-disk-cleanup'
+    /** 配置表单命名空间：bundle id 短名，与 cordis.patch.yml 的 id 一致。 */
+    const CONFIG_NS = 'dsh-disk-cleanup'
     /** 本地化命名空间。 */
     const NS = 'settings.diskCleanup'
 
@@ -172,13 +174,13 @@ window.__ModuleLoader__.load({
     function apply(ctx) {
       ctx.effect(() => ctx.locale.register(NS, MESSAGES), 'dsh-disk-cleanup 文案')
       const t = ctx.locale.bind(NS)
-      const card = new CleanupCardController(ctx.configForms.get(PLUGIN_PACKAGE))
+      const card = new CleanupCardController(ctx.configForms.get(CONFIG_NS))
       ctx.effect(() => () => {
         try {
           card.dispose()
         } catch { /* 宿主回收表单服务后，表单已经自己关掉了 */ }
       }, 'dsh-disk-cleanup 表单')
-      ctx.effect(() => ctx.configForms.whileServed([PLUGIN_PACKAGE], () => ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
+      ctx.effect(() => ctx.configForms.whileServed([CONFIG_NS], () => ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
         name: 'plugins.bundle.config',
         key: PLUGIN_PACKAGE,
         locale: NS,

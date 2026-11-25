@@ -5,7 +5,7 @@
     "": {
       "name": "@6starlong/dsh-plugins-monorepo",
       "dependencies": {
-        "@6starlong/dsh-disk-cleanup": "^0.4.4",
+        "@6starlong/dsh-disk-cleanup": "^0.4.5",
       },
       "peerDependencies": {
         "@deepseek-ai/cordis": "^4.1.0",
@@ -20,7 +20,7 @@
     },
     "packages/dsh-disk-cleanup": {
       "name": "@6starlong/dsh-disk-cleanup",
-      "version": "0.4.4",
+      "version": "0.4.5",
       "peerDependencies": {
         "@deepseek-ai/cordis": "^4.1.0",
         "@deepseek-ai/dsh-client-ui-primitives": "^0.2.2-rc.3",

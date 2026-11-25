@@ -13,7 +13,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useSyncExternalStore } fr
 const DISK_CLEANUP_VERSION = '__DISK_CLEANUP_VERSION__'
 
 /** 包名：plugins.bundle.config 的槽位 key，也是配置表单的命名空间。 */
-const PLUGIN_PACKAGE = '@6starlong/dsh-plugins'
+const PLUGIN_PACKAGE = 'dsh-plugins'
 /** 本卡片编辑的模块段。 */
 const DISK_CLEANUP_SECTION = 'dsh-disk-cleanup'
 /** 会话管理模块的段：开关、自动归档与自动删除配置。 */
