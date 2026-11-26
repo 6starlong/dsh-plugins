@@ -10,6 +10,9 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./client": {
+      "default": "./lib/client.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json",
     "./icon": "./icon.svg"
@@ -35,15 +38,20 @@
   },
   "icon": "./icon.svg",
   "scripts": {
+    "build": "node scripts/build.mjs",
     "test": "bun test"
   },
   "dependencies": {},
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.1.0",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.2-rc.3",
     "@deepseek-ai/schemastery": "*"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-primitives": {
       "optional": true
     },
     "@deepseek-ai/schemastery": {
@@ -53,6 +61,15 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "dsh-client-ui-primitives"
+      ],
+      "platform": "web",
+      "section": "dsh-backup",
+      "title": "备份同步",
+      "description": "按目录勾选与规则打包 ~/.dsh 用户数据，支持命名预设并导出 zip。"
     }
   },
   "keywords": [

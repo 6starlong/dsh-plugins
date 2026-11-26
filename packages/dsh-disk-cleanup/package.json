@@ -69,7 +69,10 @@
       "inject": [
         "dsh-client-ui-primitives"
       ],
-      "platform": "web"
+      "platform": "web",
+      "section": "dsh-disk-cleanup",
+      "title": "过期清理",
+      "description": "自动清理过期临时文件、请求图片缓存与无主附件残留，并清掉残留空目录。"
     }
   },
   "keywords": [

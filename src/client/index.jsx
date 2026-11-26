@@ -2,7 +2,7 @@
  * dsh-plugins 的浏览器半边：apply 只负责注册与模块装配。
  * 渲染组件拆在 components/ 与 panels/，构建期由 scripts/bundle-client.mjs 内联。
  */
-import { PLUGIN_PACKAGE, NS, DEFAULT_IDLE_DAYS, DEFAULT_DELETE_DAYS, DEFAULT_BACKUP_REPO, DEFAULT_BACKUP_INTERVAL } from './shared/constants.js'
+import { PLUGIN_PACKAGE, NS, DEFAULT_IDLE_DAYS, DEFAULT_DELETE_DAYS } from './shared/constants.js'
 import { REPO_CSS, THEME_CSS } from './shared/styles.js'
 import { MESSAGES } from './shared/messages.js'
 import { sectionScope, DirectCardController, useStore } from './shared/form.js'
@@ -10,7 +10,6 @@ import { SettingsPage } from './components/SettingsPage.jsx'
 import { SettingsIcon } from './components/icons.jsx'
 import { publishDeleteTarget, DeleteSessionOverlay } from './components/DeleteOverlay.jsx'
 import { SessionPanel } from './panels/SessionPanel.jsx'
-import { BackupPanel } from './panels/BackupPanel.jsx'
 
 /** 构建期注入：可嵌入的独立 npm 包面板，元数据含 id / titleKey / version / create。 */
 const PANEL_MODULES = __PANEL_MODULES__
@@ -123,6 +122,8 @@ function apply(ctx) {
     const { hooks, ...panelActions } = injected
     return {
       id: meta.id,
+      title: meta.title || null,
+      description: meta.description || null,
       titleKey: meta.titleKey,
       descriptionKey: meta.descriptionKey,
       version: meta.version,
@@ -141,7 +142,9 @@ function apply(ctx) {
   const modules = [
     ...Object.values(PANEL_MODULES).map(meta => makeModule({
       id: meta.id,
-      section: meta.id,
+      section: meta.section,
+      title: meta.title || null,
+      description: meta.description || null,
       titleKey: meta.titleKey,
       descriptionKey: meta.descriptionKey,
       version: meta.version,
@@ -162,19 +165,6 @@ function apply(ctx) {
         setSessionIdleDays: 'idleDays',
         toggleSessionDelete: 'autoDelete',
         setSessionDeleteDays: 'deleteDays',
-      }),
-    }),
-    makeModule({
-      id: 'dsh-backup',
-      section: 'dsh-backup',
-      titleKey: 'backupTitle',
-      panel: (c, s) => makeLocalPanel(s, {
-        enabled: { type: 'boolean', default: true },
-        repo: { type: 'string', default: DEFAULT_BACKUP_REPO },
-        intervalHours: { type: 'number', default: Number(DEFAULT_BACKUP_INTERVAL) },
-      }, BackupPanel, 'backupCard', {
-        setBackupRepo: 'repo',
-        setBackupInterval: 'intervalHours',
       }),
     }),
   ]

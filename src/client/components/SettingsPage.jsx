@@ -28,7 +28,7 @@ export function SettingsPage(props) {
   const summary = props.view === 'summary'
   const [tab, setTab] = useState(props.modules[0]?.id)
   const themeIds = useThemeIds()
-  const tabs = props.modules.map(module => ({ id: module.id, label: props.t(module.titleKey) }))
+  const tabs = props.modules.map(module => ({ id: module.id, label: module.title || props.t(module.titleKey) }))
   return jsxs('div', {
     className: 'dsh-plugins-root',
     'data-starlong-theme': themeIds || undefined,

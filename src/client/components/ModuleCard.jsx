@@ -10,8 +10,8 @@ export function ModuleCard(props) {
   const { module, t, view } = props
   if (view === 'summary') return null
   const state = module.useSwitch(snapshot => snapshot)
-  const title = t(module.titleKey)
-  const description = module.descriptionKey ? t(module.descriptionKey) : null
+  const title = module.title || t(module.titleKey)
+  const description = module.description || (module.descriptionKey ? t(module.descriptionKey) : null)
   const head = jsxs('div', {
     children: [
       jsxs('div', {

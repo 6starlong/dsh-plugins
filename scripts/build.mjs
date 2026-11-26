@@ -15,29 +15,37 @@ const LIB = join(ROOT, 'lib')
 const OUTPUT = join(LIB, 'client.js')
 const EXTERNAL = ['@deepseek-ai/dsh-client-ui-primitives', 'react/jsx-runtime', 'react']
 
-/** 需要在主包卡片里嵌入配置面板的独立 npm 包；titleKey 指向根包文案键。 */
-const PANEL_PACKAGES = [{ dir: 'dsh-disk-cleanup', id: 'dsh-disk-cleanup', titleKey: 'title', descriptionKey: 'description' }]
-
 /**
- * 构建期内联子包面板源码：宿主只加载启动清单里的 bundle，不会自动加载依赖包的 client。
+ * 自动发现 packages/* 里声明 dsh.client 与 ./client 导出的独立包。
  * 每份面板放进独立闭包，避免模块内部的 module.exports 覆盖主包导出。
  * @returns {Promise<string>} 面板模块表与注册语句。
  */
 async function readPanels() {
   const parts = ['var __PANEL_MODULES__ = {};']
-  for (const meta of PANEL_PACKAGES) {
-    const pkg = JSON.parse(await readFile(join(ROOT, 'packages', meta.dir, 'package.json'), 'utf8'))
-    const file = join(ROOT, 'packages', meta.dir, 'src', 'client', 'index.jsx')
-    const code = await bundleClient({ srcDir: join(ROOT, 'packages', meta.dir, 'src', 'client'), external: EXTERNAL })
+  const packagesDir = join(ROOT, 'packages')
+  const entries = (await readdir(packagesDir, { withFileTypes: true }))
+    .filter(entry => entry.isDirectory())
+    .sort((a, b) => a.name.localeCompare(b.name))
+  for (const entry of entries) {
+    const pkgPath = join(packagesDir, entry.name)
+    const manifest = join(pkgPath, 'package.json')
+    if (!(await stat(manifest).catch(() => null))) continue
+    const pkg = JSON.parse(await readFile(manifest, 'utf8'))
+    const client = pkg.dsh?.client
+    if (!client || !pkg.exports?.['./client']) continue
+    const srcDir = join(pkgPath, 'src', 'client')
+    if (!(await stat(join(srcDir, 'index.jsx')).catch(() => null))) continue
+    const code = await bundleClient({ srcDir, external: EXTERNAL })
     parts.push([
       ';(function () {',
       '  var module = { exports: {} };',
       '  var exports = module.exports;',
       ...code.split('\n').map(line => '  ' + line),
-      '  __PANEL_MODULES__[' + JSON.stringify(meta.id) + '] = Object.assign({',
-      '    id: ' + JSON.stringify(meta.id) + ',',
-      '    titleKey: ' + JSON.stringify(meta.titleKey) + ',',
-      '    descriptionKey: ' + JSON.stringify(meta.descriptionKey) + ',',
+      '  __PANEL_MODULES__[' + JSON.stringify(pkg.name) + '] = Object.assign({',
+      '    id: ' + JSON.stringify(pkg.name) + ',',
+      '    section: ' + JSON.stringify(client.section || entry.name) + ',',
+      '    title: ' + JSON.stringify(client.title || null) + ',',
+      '    description: ' + JSON.stringify(client.description || null) + ',',
       '    version: ' + JSON.stringify(pkg.version) + ',',
       '  }, module.exports);',
       '})();',

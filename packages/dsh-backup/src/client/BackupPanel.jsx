@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
-import { STYLE } from '../shared/styles.js'
-import { DaysInput, TextInput } from '../components/fields.jsx'
-import { BACKUP_EXPORT_ROUTE, BACKUP_DOWNLOAD_ROUTE, BACKUP_TOKEN_HEADER, BACKUP_TREE_ROUTE, BACKUP_PRESET_ROUTE, resolveApiUrl } from '../shared/api.js'
+import { STYLE } from './styles.js'
+import { DaysInput, TextInput } from './fields.jsx'
+import { BACKUP_EXPORT_ROUTE, BACKUP_DOWNLOAD_ROUTE, BACKUP_TOKEN_HEADER, BACKUP_TREE_ROUTE, BACKUP_PRESET_ROUTE, resolveApiUrl } from './api.js'
 
 /** 体积显示：保留一位小数，避免长数字撑破布局。 */
 export function formatBytes(bytes) {

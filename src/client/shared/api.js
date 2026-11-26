@@ -1,13 +1,6 @@
 /** 手动删除端点与同源头：与服务端 session-manager/core.js 对齐。 */
 export const DELETE_ROUTE = '/api/starlong/session-manager/delete'
 export const DELETE_TOKEN_HEADER = 'x-starlong-delete'
-/** 本地备份端点与同源头：与服务端包 packages/dsh-backup/lib/index.js 对齐。 */
-export const BACKUP_EXPORT_ROUTE = '/api/starlong/dsh-backup/export'
-export const BACKUP_DOWNLOAD_ROUTE = '/api/starlong/dsh-backup/download'
-export const BACKUP_TOKEN_HEADER = 'x-starlong-backup'
-export const BACKUP_TREE_ROUTE = '/api/starlong/dsh-backup/tree'
-export const BACKUP_PRESET_ROUTE = '/api/starlong/dsh-backup/preset'
-
 /** 把根绝对路径端点挂到页面 base 下，兼容带路径前缀的反向代理。 */
 export function resolveApiUrl(path) {
   if (typeof path !== 'string' || path.charAt(0) !== '/' || path.charAt(1) === '/') return path
