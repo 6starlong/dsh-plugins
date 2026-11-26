@@ -23,6 +23,39 @@ export const BACKUP_CSS = `
 .dsh-plugins-btn-danger{background:transparent;border-color:rgba(217,72,65,.55);color:#e06c66}
 .dsh-plugins-btn-danger:hover:not(:disabled){background:rgba(217,72,65,.14);border-color:rgba(217,72,65,.85)}
 .dsh-plugins-btn-danger:active:not(:disabled){transform:translateY(1px)}
+/* 统一设置清单：左名称右控件，所有行同高同边距。 */
+.dsh-backup-setting-row{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:44px;padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.22))}
+.dsh-backup-setting-label{font-size:14px;font-weight:400;color:var(--dsw-alias-label-primary,inherit)}
+.dsh-backup-setting-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;text-align:right}
+.dsh-backup-setting-note{margin-top:4px;font-size:12px;opacity:.7}
+.dsh-backup-field-row{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:44px;padding:8px 0}
+.dsh-backup-field-control{display:flex;align-items:center;gap:6px}
+.dsh-backup-field-label{font-size:14px;font-weight:400}
+.dsh-backup-field-suffix{font-size:14px;opacity:.75}
+.dsh-backup-number-input,.dsh-backup-text-input,.dsh-backup-select-input{padding:4px 8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));border-radius:6px;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.12));color:inherit;font:inherit;font-size:13px}
+.dsh-backup-number-input{width:56px;text-align:center}
+.dsh-backup-text-input{width:220px;box-sizing:border-box}
+.dsh-backup-preset-name{width:120px}
+.dsh-backup-select-input{max-width:180px}
+.dsh-backup-disclosure{border-bottom:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.22))}
+.dsh-backup-disclosure-head{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:8px 0;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.dsh-backup-disclosure-head:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.1))}
+.dsh-backup-disclosure-head:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#d97757);outline-offset:-2px}
+.dsh-backup-disclosure-label{font-size:14px;font-weight:400}
+.dsh-backup-disclosure-summary{margin-left:auto;max-width:60%;font-size:12px;opacity:.65;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dsh-backup-disclosure-caret{flex:0 0 auto;width:7px;height:7px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);opacity:.55;transition:transform .15s ease}
+.dsh-backup-disclosure.is-open .dsh-backup-disclosure-caret{transform:rotate(-135deg)}
+.dsh-backup-disclosure-body{padding:2px 0 14px}
+.dsh-backup-muted{font-size:12px;opacity:.55;padding:10px 0}
+.dsh-backup-adjusted-list{display:flex;flex-direction:column;gap:6px}
+.dsh-backup-regex-head{display:flex;align-items:center;gap:8px;font-size:13px}
+.dsh-backup-regex-pending{font-size:12px;color:#f59e0b}
+.dsh-backup-regex-row{display:flex;align-items:flex-start;gap:8px;margin-top:6px}
+.dsh-backup-regex-input{flex:1;box-sizing:border-box;padding:6px 8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));border-radius:6px;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.12));color:inherit;font:inherit;font-size:12px;resize:vertical}
+.dsh-backup-preset-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.dsh-backup-export-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+@media (prefers-reduced-motion:reduce){.dsh-backup-disclosure-caret{transition:none}}
+
 /* 备份树按档案清单设计：标题区承载状态，内容区沿用 DSH 侧边栏的行密度与图标语义。 */
 .dsh-backup-tree-section{margin-top:2px}
 .dsh-backup-tree-head{display:flex;align-items:center;gap:10px;min-height:32px}
