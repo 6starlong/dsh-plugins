@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { apply } from '../lib/index.js'
 import { readZip, writeZip } from '../lib/zip.js'
 
 const EXPORT = '/api/starlong/dsh-backup/export'
 const RESTORE = '/api/starlong/dsh-backup/restore'
+const UPLOAD = '/api/starlong/dsh-backup/upload'
 
 function setup() {
   const handlers = {}
@@ -37,6 +38,16 @@ function req(route, body = {}) {
         for (const end of listeners.end || []) end()
       })
     },
+  }
+}
+
+function reqBinary(route, chunks) {
+  return {
+    headers: { host: '127.0.0.1:51234', 'sec-fetch-site': 'same-origin', 'x-starlong-backup': '1' },
+    socket: { remoteAddress: '127.0.0.1' },
+    url: route,
+    on() {},
+    [Symbol.asyncIterator]: async function* () { yield* chunks },
   }
 }
 
@@ -96,7 +107,7 @@ describe('备份增量还原', () => {
       try {
         await exportOnce(handlers)
         writeFileSync(join(root, 'backups', 'dsh-backup_2020-01-01_00-00-00.zip'),
-          readFileSync(join(root, 'backups', (await import('node:fs')).readdirSync(join(root, 'backups'))[0])))
+          readFileSync(join(root, 'backups', readdirSync(join(root, 'backups'))[0])))
         rmSync(join(root, 'settings.yaml'), { force: true })
         const done = res()
         await handlers[RESTORE](req(RESTORE, {}), done)
@@ -154,6 +165,118 @@ describe('备份增量还原', () => {
         expect(real.out.status).toBe(200)
         expect(readFileSync(join(root, 'settings.yaml'), 'utf8')).toBe('enabled: true')
         expect(existsSync(join(root, 'node_modules', 'pkg', 'index.js'))).toBe(false)
+      } finally { cleanup() }
+    })
+  })
+
+  it('从 backups 外的任意本地路径还原', async () => {
+    await withHome(async root => {
+      writeFileSync(join(root, 'settings.yaml'), 'enabled: true')
+      const { handlers, cleanup } = setup()
+      try {
+        const name = await exportOnce(handlers)
+        const outside = join(root, 'downloads', name)
+        mkdirSync(dirname(outside), { recursive: true })
+        copyFileSync(join(root, 'backups', name), outside)
+        rmSync(join(root, 'settings.yaml'), { force: true })
+        const done = res()
+        await handlers[RESTORE](req(RESTORE, { path: outside }), done)
+        expect(done.out.status).toBe(200)
+        expect(readFileSync(join(root, 'settings.yaml'), 'utf8')).toBe('enabled: true')
+      } finally { cleanup() }
+    })
+  })
+
+  it('非法路径被拒且不写盘', async () => {
+    await withHome(async root => {
+      const { handlers, cleanup } = setup()
+      try {
+        const missing = res()
+        await handlers[RESTORE](req(RESTORE, { path: join(root, 'missing.zip') }), missing)
+        expect(missing.out.status).toBe(400)
+        const relative = res()
+        await handlers[RESTORE](req(RESTORE, { path: 'backups/foo.zip' }), relative)
+        expect(relative.out.status).toBe(400)
+        const fake = join(root, 'note.txt')
+        writeFileSync(fake, 'not a zip')
+        const notZip = res()
+        await handlers[RESTORE](req(RESTORE, { path: fake }), notZip)
+        expect(notZip.out.status).toBe(400)
+        expect(existsSync(join(root, 'settings.yaml'))).toBe(false)
+      } finally { cleanup() }
+    })
+  })
+
+  it('只读且内容一致的文件跳过写入，不报 EPERM', async () => {
+    await withHome(async root => {
+      writeFileSync(join(root, 'settings.yaml'), 'enabled: true')
+      chmodSync(join(root, 'settings.yaml'), 0o444)
+      const { handlers, cleanup } = setup()
+      try {
+        const name = await exportOnce(handlers)
+        const done = res()
+        await handlers[RESTORE](req(RESTORE, { name }), done)
+        expect(done.out.status).toBe(200)
+        expect(done.out.payload.ok).toBe(true)
+        expect(done.out.payload.skippedIdentical).toBeGreaterThanOrEqual(1)
+        expect(readFileSync(join(root, 'settings.yaml'), 'utf8')).toBe('enabled: true')
+        expect(statSync(join(root, 'settings.yaml')).mode & 0o200).toBe(0)
+      } finally { cleanup() }
+    })
+  })
+
+  it('只读且内容不同的文件解锁写回后恢复只读属性', async () => {
+    await withHome(async root => {
+      writeFileSync(join(root, 'settings.yaml'), 'enabled: true')
+      const { handlers, cleanup } = setup()
+      try {
+        const name = await exportOnce(handlers)
+        chmodSync(join(root, 'settings.yaml'), 0o644)
+        writeFileSync(join(root, 'settings.yaml'), 'enabled: false')
+        chmodSync(join(root, 'settings.yaml'), 0o444)
+        const done = res()
+        await handlers[RESTORE](req(RESTORE, { name }), done)
+        expect(done.out.status).toBe(200)
+        expect(readFileSync(join(root, 'settings.yaml'), 'utf8')).toBe('enabled: true')
+        expect(statSync(join(root, 'settings.yaml')).mode & 0o200).toBe(0)
+      } finally { cleanup() }
+    })
+  })
+
+  it('上传字节后用临时路径还原，结束删除临时文件', async () => {
+    await withHome(async root => {
+      writeFileSync(join(root, 'settings.yaml'), 'enabled: true')
+      const { handlers, cleanup } = setup()
+      try {
+        const name = await exportOnce(handlers)
+        const bytes = readFileSync(join(root, 'backups', name))
+        const uploaded = res()
+        await handlers[UPLOAD](reqBinary(UPLOAD, [bytes.subarray(0, 1000), bytes.subarray(1000)]), uploaded)
+        expect(uploaded.out.status).toBe(200)
+        expect(uploaded.out.payload.ok).toBe(true)
+        const tmpPath = uploaded.out.payload.path
+        expect(existsSync(tmpPath)).toBe(true)
+        rmSync(join(root, 'settings.yaml'), { force: true })
+        const done = res()
+        await handlers[RESTORE](req(RESTORE, { path: tmpPath }), done)
+        expect(done.out.status).toBe(200)
+        expect(readFileSync(join(root, 'settings.yaml'), 'utf8')).toBe('enabled: true')
+        expect(existsSync(tmpPath)).toBe(false)
+      } finally { cleanup() }
+    })
+  })
+
+  it('上传非 zip 字节被拒且不留下临时文件', async () => {
+    await withHome(async () => {
+      const { handlers, cleanup } = setup()
+      try {
+        const before = readdirSync(tmpdir()).filter(n => n.startsWith('dsh-backup-upload-'))
+        const uploaded = res()
+        await handlers[UPLOAD](reqBinary(UPLOAD, [Buffer.from('not a zip')]), uploaded)
+        expect(uploaded.out.status).toBe(400)
+        expect(uploaded.out.payload.error).toBe('not a zip')
+        const after = readdirSync(tmpdir()).filter(n => n.startsWith('dsh-backup-upload-'))
+        expect(after.length).toBe(before.length)
       } finally { cleanup() }
     })
   })

@@ -6,7 +6,7 @@ import { DaysInput, TextInput } from './fields.jsx'
 import { SettingRow } from './components/SettingRow.jsx'
 import { RestoreOverlay } from './components/RestoreOverlay.jsx'
 import { DisclosureRow } from './components/DisclosureRow.jsx'
-import { BACKUP_EXPORT_ROUTE, BACKUP_TOKEN_HEADER, BACKUP_TREE_ROUTE, BACKUP_PRESET_ROUTE, BACKUP_REVEAL_ROUTE, BACKUP_VERSIONS_ROUTE, BACKUP_VERIFY_ROUTE, BACKUP_RESTORE_ROUTE, resolveApiUrl } from './api.js'
+import { BACKUP_EXPORT_ROUTE, BACKUP_TOKEN_HEADER, BACKUP_TREE_ROUTE, BACKUP_PRESET_ROUTE, BACKUP_REVEAL_ROUTE, BACKUP_VERSIONS_ROUTE, BACKUP_VERIFY_ROUTE, BACKUP_RESTORE_ROUTE, BACKUP_UPLOAD_ROUTE, resolveApiUrl } from './api.js'
 import { SegmentedControl } from './components/SegmentedControl.jsx'
 
 /** 体积显示：保留一位小数，避免长数字撑破布局。 */
@@ -65,7 +65,10 @@ export function BackupPanel(props) {
   const [restorePhase, setRestorePhase] = useState(-1)
   const [restoreResult, setRestoreResult] = useState(null)
   const [restoreError, setRestoreError] = useState('')
+  const [restoreFileName, setRestoreFileName] = useState('')
   const [importAnchor, setImportAnchor] = useState(null)
+  const fileInputRef = useRef(null)
+  const restoreFileRef = useRef(null)
   const [versions, setVersions] = useState({ count: 0, latest: null })
   const [error, setError] = useState(null)
   const [sectionOpen, setSectionOpen] = useState({})
@@ -115,6 +118,16 @@ export function BackupPanel(props) {
     if (!res.ok || data?.ok !== true) throw new Error(data?.error || String(res.status))
     return data
   }
+  const uploadFile = async file => {
+    const res = await fetch(resolveApiUrl(BACKUP_UPLOAD_ROUTE), {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream', [BACKUP_TOKEN_HEADER]: '1' },
+      body: file,
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || data?.ok !== true) throw new Error(data?.error || String(res.status))
+    return data
+  }
   const loadVersions = async () => {
     try {
       const data = await request(BACKUP_VERSIONS_ROUTE, {})
@@ -122,19 +135,46 @@ export function BackupPanel(props) {
     } catch { /* 版本概览失败不影响设置页 */ }
   }
   useEffect(() => { void loadVersions() }, [])
+  // 原生文件选择器选 zip；会话内 pathFor 拿不到真实路径，保留 File 供上传字节。
+  const pickRestoreFile = event => {
+    const input = event?.target
+    const file = input?.files?.[0]
+    if (input) input.value = ''
+    if (!file) return
+    if (!/\.zip$/i.test(file.name || '')) {
+      setRestoreFileName('')
+      setRestoreError('请选择 zip 备份文件')
+      setRestoreResult(null)
+      setRestorePhase(-2)
+      setRestoreOpen(true)
+      return
+    }
+    restoreFileRef.current = file
+    setRestoreFileName(file.name)
+    setRestoreError('')
+    setRestoreResult(null)
+    setRestorePhase(-1)
+    setRestoreOpen(true)
+  }
   const runRestore = async () => {
+    const file = restoreFileRef.current
+    if (!file) return
     setRestoreError('')
     setRestoreResult(null)
     setRestorePhase(0)
     try {
-      await request(BACKUP_VERIFY_ROUTE, {})
+      const uploaded = await uploadFile(file)
+      const payload = { path: uploaded.path }
+      await request(BACKUP_VERIFY_ROUTE, payload)
       setRestorePhase(1)
-      const result = await request(BACKUP_RESTORE_ROUTE, {})
+      const result = await request(BACKUP_RESTORE_ROUTE, payload)
       setRestoreResult(result)
       setRestorePhase(3)
     } catch (e) {
       setRestoreError(e?.message || String(e))
       setRestorePhase(-2)
+    } finally {
+      restoreFileRef.current = null
     }
   }
   const closeRestore = () => { setRestoreOpen(false) }
@@ -256,6 +296,7 @@ export function BackupPanel(props) {
     setError(null)
     try {
       await request(BACKUP_EXPORT_ROUTE, { overrides, regex, preset: presetName || undefined, dir })
+      await loadVersions()
     } catch (e) { setError(e?.message || '') }
     finally { setExporting(false) }
   }
@@ -514,12 +555,21 @@ export function BackupPanel(props) {
         control: jsx('span', {
           ref: setImportAnchor,
           style: { display: 'inline-flex' },
-          children: jsx(Button, {
-            variant: 'ghost', size: 'sm',
-            disabled: restoreOpen,
-            onClick: () => { setRestorePhase(-1); setRestoreOpen(true) },
-            children: t('backupImportZip'),
-          }, 'import'),
+          children: [
+            jsx(Button, {
+              variant: 'ghost', size: 'sm',
+              disabled: restoreOpen,
+              onClick: () => fileInputRef.current?.click(),
+              children: t('backupImportZip'),
+            }, 'import'),
+            jsx('input', {
+              ref: fileInputRef,
+              type: 'file',
+              accept: '.zip',
+              style: { display: 'none' },
+              onChange: pickRestoreFile,
+            }, 'file-input'),
+          ],
         }, 'import-anchor'),
       }, 'import-row'),
       jsx(SettingRow, {
@@ -574,7 +624,7 @@ export function BackupPanel(props) {
       error ? jsx('p', { className: 'dsh-backup-form-note', role: 'alert', style: { ...STYLE.hint, color: '#f87171' }, children: t('backupError') + '：' + error }, 'error') : null,
       jsx(RestoreOverlay, {
         t, open: restoreOpen, phase: restorePhase, anchor: importAnchor,
-        result: restoreResult, error: restoreError,
+        result: restoreResult, error: restoreError, fileName: restoreFileName,
         onConfirm: runRestore,
         onClose: closeRestore,
       }, 'restore-overlay'),

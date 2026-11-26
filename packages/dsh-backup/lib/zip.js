@@ -39,6 +39,17 @@ export async function writeZip(outputPath, entries, onProgress, onEntry) {
   const central = []
   let offset = 0
   let done = 0
+  // 逐条 await write 在万条目级 zip 上会被 Windows 的系统调用开销拖到分钟级；按 8 MiB 攒批后一次落盘。
+  const BATCH_LIMIT = 8 * 1024 * 1024
+  let batch = []
+  let batchBytes = 0
+  const flush = async () => {
+    if (batch.length === 0) return
+    const buf = batch.length === 1 ? batch[0] : Buffer.concat(batch, batchBytes)
+    await handle.write(buf, 0, buf.length, offset - batchBytes)
+    batch = []
+    batchBytes = 0
+  }
   try {
     for (const entry of entries) {
       const name = Buffer.from(encoder.encode(entry.rel.replace(/\\/g, '/')))
@@ -59,9 +70,10 @@ export async function writeZip(outputPath, entries, onProgress, onEntry) {
       local.writeUInt16LE(0, 28)
       name.copy(local, 30)
       const localOffset = offset
-      await handle.write(local, 0, local.length, offset)
-      offset += local.length
-      await handle.write(data, 0, data.length, offset)
+      batch.push(local, data)
+      batchBytes += local.length + data.length
+      offset += local.length + data.length
+      if (batchBytes >= BATCH_LIMIT) await flush()
       const header = Buffer.alloc(46 + name.length)
       header.writeUInt32LE(0x02014B50, 0)
       header.writeUInt16LE(20, 4)
@@ -82,15 +94,14 @@ export async function writeZip(outputPath, entries, onProgress, onEntry) {
       header.writeUInt32LE(localOffset, 42)
       name.copy(header, 46)
       central.push(header)
-      offset += data.length
       done++
       if (done % 50 === 0) onProgress?.(done, entries.length)
     }
+    await flush()
     const centralStart = offset
-    for (const header of central) {
-      await handle.write(header, 0, header.length, offset)
-      offset += header.length
-    }
+    const centralBuf = Buffer.concat(central)
+    await handle.write(centralBuf, 0, centralBuf.length, offset)
+    offset += centralBuf.length
     const eocd = Buffer.alloc(22)
     eocd.writeUInt32LE(0x06054B50, 0)
     eocd.writeUInt16LE(0, 4)

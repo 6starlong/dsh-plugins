@@ -2,9 +2,10 @@
  * DSH 备份模块：按规则预设扫描 ~/.dsh 并导出 zip。
  * @module dsh-plugins/dsh-backup/index
  */
-import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
+import { chmod, mkdir, open, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { buildMatcher, dshHome, describeChildren, scanTree, DEFAULT_PRESET } from './rules.js'
 import { readZip, writeZip } from './zip.js'
@@ -29,6 +30,9 @@ const REVEAL_ROUTE = '/api/starlong/dsh-backup/reveal'
 const VERSIONS_ROUTE = '/api/starlong/dsh-backup/versions'
 const VERIFY_ROUTE = '/api/starlong/dsh-backup/verify'
 const RESTORE_ROUTE = '/api/starlong/dsh-backup/restore'
+const UPLOAD_ROUTE = '/api/starlong/dsh-backup/upload'
+const UPLOAD_PREFIX = 'dsh-backup-upload-'
+const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
 
 /** volatile 代理取真实值。 */
 function unwrap(raw, fallback) {
@@ -242,6 +246,23 @@ async function resolveBackupName(home, name) {
   return list[0].n
 }
 
+/** 解析还原目标：优先用前端传来的本地绝对路径，否则回退到 backups 目录内的文件名。 */
+async function resolveRestoreFile(home, request, body) {
+  const raw = typeof body?.path === 'string' ? body.path.trim() : ''
+  if (raw !== '') {
+    if (!isAbsolute(raw) || !raw.toLowerCase().endsWith('.zip')) return null
+    const st = await stat(raw).catch(() => null)
+    return st?.isFile() ? raw : null
+  }
+  const name = await resolveBackupName(home, requestName(request, body))
+  return name === null ? null : join(home, EXPORT_DIR, basename(name))
+}
+
+/** 上传产生的临时 zip：用于区分需要在校验/还原后清理的文件。 */
+function isUploadedTemp(filePath) {
+  return resolve(dirname(filePath)) === resolve(tmpdir()) && basename(filePath).startsWith(UPLOAD_PREFIX)
+}
+
 /** 兼容前端 POST body 与既有 GET query 两种传名方式。 */
 function requestName(request, body) {
   if (typeof body?.name === 'string' && body.name !== '') return body.name
@@ -271,6 +292,7 @@ async function restoreBackup(filePath, home, dryRun) {
   let overwritten = 0
   let skippedDependencies = 0
   let skippedConflicts = 0
+  let skippedIdentical = 0
   for (const entry of entries) {
     if (entry.rel === '_manifest.json') continue
     const rel = safeRel(entry.rel)
@@ -279,14 +301,22 @@ async function restoreBackup(filePath, home, dryRun) {
     const target = join(home, rel)
     const current = await stat(target).catch(() => null)
     if (current?.isDirectory()) { skippedConflicts++; continue }
+    const readonly = Boolean(current) && (current.mode & 0o200) === 0
+    if (readonly && current.size === entry.data.length &&
+        createHash('sha256').update(await readFile(target)).digest('hex') === createHash('sha256').update(entry.data).digest('hex')) {
+      skippedIdentical++
+      continue
+    }
     files.push({ rel, action: current ? 'overwrite' : 'create' })
     if (dryRun) continue
     await mkdir(dirname(target), { recursive: true })
+    if (readonly) await chmod(target, current.mode | 0o200)
     await writeFile(target, entry.data)
+    if (readonly) await chmod(target, current.mode & 0o777)
     if (current) overwritten++
     else written++
   }
-  return { ok: true, dryRun: Boolean(dryRun), total: files.length, written, overwritten, skippedDependencies, skippedConflicts, files }
+  return { ok: true, dryRun: Boolean(dryRun), total: files.length, written, overwritten, skippedDependencies, skippedConflicts, skippedIdentical, files }
 }
 
 /** 命名预设只在 backups/presets 下读写，名称白名单防路径穿越。 */
@@ -317,7 +347,7 @@ function safeRel(value) {
 }
 
 /**
- * 装配模块。只注册导出/下载/树/预设/打开目录/版本/校验/还原路由；开关关闭时不注册。
+ * 装配模块。只注册导出/下载/树/预设/打开目录/版本/校验/还原/上传路由；开关关闭时不注册。
  * @param {import('@deepseek-ai/cordis').Context} ctx - 宿主上下文。
  * @param {unknown} config - 套件 config。
  */
@@ -453,33 +483,75 @@ export function apply(ctx, config) {
       sendJson(response, 200, { ok: true, count: times.length, latest })
     }
 
-    /** 校验本地备份包：只认约定头与回环同源，文件名走白名单，返回缺失/不符清单。 */
+    /** 校验备份包：只认约定头与回环同源，支持本地绝对路径或 backups 内文件名，返回缺失/不符清单。 */
     const onVerify = async (request, response) => {
       if (rejectByConnection(ctx, request, response)) return
       if (!isTrustedExport(request)) return sendJson(response, 403, { ok: false, error: 'forbidden' })
       const body = await readJsonBody(request) ?? {}
       const home = dshHome()
-      const name = await resolveBackupName(home, requestName(request, body))
-      if (name === null) return sendJson(response, 400, { ok: false, error: 'bad name' })
-      const result = await verifyBackup(join(home, EXPORT_DIR, basename(name)))
+      const filePath = await resolveRestoreFile(home, request, body)
+      if (filePath === null) return sendJson(response, 400, { ok: false, error: 'bad path' })
+      const result = await verifyBackup(filePath)
+      if (!result.ok && isUploadedTemp(filePath)) {
+        await unlink(filePath).catch(() => {})
+      }
       sendJson(response, result.ok ? 200 : 409, result)
     }
 
-    /** 增量还原：校验通过后只覆盖同名文件，不删原有文件，依赖目录跳过。 */
+    /** 会话内文件选择器拿不到真实路径：客户端把 zip 字节本地上传，流式落到临时文件。 */
+    const onUpload = async (request, response) => {
+      if (rejectByConnection(ctx, request, response)) return
+      if (!isTrustedExport(request)) return sendJson(response, 403, { ok: false, error: 'forbidden' })
+      const tmp = join(tmpdir(), UPLOAD_PREFIX + randomUUID() + '.zip')
+      let handle
+      let ok = false
+      try {
+        handle = await open(tmp, 'wx', 0o600)
+        let size = 0
+        for await (const chunk of request) {
+          size += chunk.length
+          if (size > MAX_UPLOAD_BYTES) { sendJson(response, 413, { ok: false, error: 'zip too large' }); return }
+          await handle.write(chunk)
+        }
+        await handle.close()
+        handle = undefined
+        if (size < 4) { sendJson(response, 400, { ok: false, error: 'empty zip' }); return }
+        const head = Buffer.alloc(4)
+        const reader = await open(tmp, 'r')
+        try { await reader.read(head, 0, 4, 0) } finally { await reader.close() }
+        if (head[0] !== 0x50 || head[1] !== 0x4b || head[2] !== 0x03 || head[3] !== 0x04) { sendJson(response, 400, { ok: false, error: 'not a zip' }); return }
+        ok = true
+        sendJson(response, 200, { ok: true, path: tmp, size })
+      } catch (error) {
+        sendJson(response, 500, { ok: false, error: error?.message || String(error) })
+      } finally {
+        if (handle) await handle.close().catch(() => {})
+        if (!ok) await unlink(tmp).catch(() => {})
+      }
+    }
+
+    /** 增量还原：支持任意本地 zip 路径，校验通过后只覆盖同名文件，不删原有文件，依赖目录跳过。 */
     const onRestore = async (request, response) => {
       if (rejectByConnection(ctx, request, response)) return
       if (!isTrustedExport(request)) return sendJson(response, 403, { ok: false, error: 'forbidden' })
       const body = await readJsonBody(request) ?? {}
       const home = dshHome()
-      const name = await resolveBackupName(home, requestName(request, body))
-      if (name === null) return sendJson(response, 400, { ok: false, error: 'bad name' })
+      const filePath = await resolveRestoreFile(home, request, body)
+      if (filePath === null) return sendJson(response, 400, { ok: false, error: 'bad path' })
+      const uploaded = isUploadedTemp(filePath)
+      let status
+      let payload
       try {
-        const result = await restoreBackup(join(home, EXPORT_DIR, basename(name)), home, body?.dryRun === true)
-        sendJson(response, result.ok ? 200 : 409, result)
+        payload = await restoreBackup(filePath, home, body?.dryRun === true)
+        status = payload.ok ? 200 : 409
       } catch (error) {
         ctx.logger?.warn?.('[dsh-plugins] 还原失败：' + (error?.message || String(error)))
-        sendJson(response, 500, { ok: false, error: error?.message || String(error) })
+        status = 500
+        payload = { ok: false, error: error?.message || String(error) }
+      } finally {
+        if (uploaded) await unlink(filePath).catch(() => {})
       }
+      sendJson(response, status, payload)
     }
 
     /** 启动即检查一次，之后每分钟复查：距最近备份满间隔就备一份；DSH 关闭时随 effect 停止。 */
@@ -519,6 +591,7 @@ export function apply(ctx, config) {
       webServer.register({ kind: 'exact', path: VERSIONS_ROUTE, handler: onVersions }),
       webServer.register({ kind: 'exact', path: VERIFY_ROUTE, handler: onVerify }),
       webServer.register({ kind: 'exact', path: RESTORE_ROUTE, handler: onRestore }),
+      webServer.register({ kind: 'exact', path: UPLOAD_ROUTE, handler: onUpload }),
     ]
     return () => {
       clearInterval(timer)

@@ -280,7 +280,7 @@ describe('导出路由', () => {
       apply(ctx, config)
       const exportPath = '/api/starlong/dsh-backup/export'
       const downloadPath = '/api/starlong/dsh-backup/download'
-      expect(Object.keys(handlers).sort()).toEqual([downloadPath, exportPath, '/api/starlong/dsh-backup/preset', '/api/starlong/dsh-backup/tree', '/api/starlong/dsh-backup/reveal', '/api/starlong/dsh-backup/versions', '/api/starlong/dsh-backup/verify', '/api/starlong/dsh-backup/restore'].sort())
+      expect(Object.keys(handlers).sort()).toEqual([downloadPath, exportPath, '/api/starlong/dsh-backup/preset', '/api/starlong/dsh-backup/tree', '/api/starlong/dsh-backup/reveal', '/api/starlong/dsh-backup/versions', '/api/starlong/dsh-backup/verify', '/api/starlong/dsh-backup/restore', '/api/starlong/dsh-backup/upload'].sort())
       const baseReq = {
         headers: { host: '127.0.0.1:51234', 'sec-fetch-site': 'same-origin' },
         socket: { remoteAddress: '127.0.0.1' },

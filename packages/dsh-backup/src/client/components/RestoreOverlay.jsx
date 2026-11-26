@@ -5,7 +5,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 const PHASES = ['backupRestorePhaseVerify', 'backupRestorePhaseFiles', 'backupRestorePhaseModules', 'backupRestorePhaseDone']
 const WIDTH = 300
 
-export function RestoreOverlay({ t, open, phase, anchor, result, error, onConfirm, onClose }) {
+export function RestoreOverlay({ t, open, phase, anchor, result, error, fileName, onConfirm, onClose }) {
   const cardRef = useRef(null)
   const [pos, setPos] = useState(null)
   const done = phase >= PHASES.length - 1
@@ -62,6 +62,7 @@ export function RestoreOverlay({ t, open, phase, anchor, result, error, onConfir
     children: [
       jsx('div', { className: 'dsh-backup-modal-title', children: t('backupRestoreTitle') }, 'title'),
       jsx('p', { className: 'dsh-backup-modal-desc', children: t('backupRestoreBody') }, 'desc'),
+      fileName ? jsx('p', { className: 'dsh-backup-modal-file', title: fileName, children: t('backupRestoreSelected') + '：' + fileName }, 'selected') : null,
       failed
         ? jsxs('div', {
             className: 'dsh-backup-modal-actions',
@@ -75,7 +76,7 @@ export function RestoreOverlay({ t, open, phase, anchor, result, error, onConfir
               className: 'dsh-backup-modal-actions',
               children: [
                 jsx('button', { type: 'button', className: 'dsh-plugins-btn dsh-plugins-btn-cancel', onClick: onClose, children: t('backupRestoreCancel') }, 'cancel'),
-                jsx('button', { type: 'button', className: 'dsh-plugins-btn', onClick: onConfirm, children: t('backupRestoreConfirm') }, 'confirm'),
+                jsx('button', { type: 'button', className: 'dsh-plugins-btn', onClick: onConfirm, disabled: !fileName, children: t('backupRestoreConfirm') }, 'confirm'),
               ],
             }, 'actions')
           : jsxs('div', {

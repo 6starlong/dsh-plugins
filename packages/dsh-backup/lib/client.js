@@ -206,7 +206,7 @@ window.__ModuleLoader__.load({
         backupExporting: '导出中…',
         backupError: '导出失败',
         backupRestoreTitle: '一键还原',
-        backupRestoreBody: '把备份的文件恢复到 ~/.dsh：只增量覆盖，不删除原有文件，也不改动已装依赖。',
+        backupRestoreBody: '选择本地备份 zip；还原只增量覆盖，不删除原有文件，也不改动已装依赖。',
         backupRestoreConfirm: '开始还原',
         backupRestoreCancel: '取消',
         backupRestoreClose: '关闭',
@@ -216,6 +216,7 @@ window.__ModuleLoader__.load({
         backupRestorePhaseDone: '还原完成',
         backupRestoreDone: '还原完成',
         backupRestoreFailed: '还原失败',
+        backupRestoreSelected: '选中备份',
         backupRestoreSummary: '新增 {added} 个文件，覆盖 {overwritten} 个，已装依赖未重复安装。',
         backupConfigure: '配置',
         backupEdit: '编辑',
@@ -338,10 +339,11 @@ window.__ModuleLoader__.load({
     .dsh-backup-tree-name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px}
     .dsh-backup-tree-size{box-sizing:border-box;justify-self:end;width:96px;padding-right:12px;text-align:right;white-space:nowrap;opacity:.6;font-size:12px;font-variant-numeric:tabular-nums}
     @media (prefers-reduced-motion:reduce){.dsh-backup-tree-skeleton-icon,.dsh-backup-tree-skeleton-line{animation:none}}
-    /* 一键还原浮层：锚定导入按钮的小卡片，无全屏遮罩；演示阶段只推进状态。 */
+    /* 一键还原浮层：锚定导入按钮的小卡片，无全屏遮罩；校验与恢复由服务端执行。 */
     .dsh-backup-restore-card{padding:16px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));border-radius:8px;background:var(--dsw-alias-bg-layer-3,rgba(32,32,32,.98));color:inherit;box-shadow:0 8px 24px rgba(0,0,0,.35)}
     .dsh-backup-modal-title{font-weight:600;font-size:15px;margin-bottom:8px}
     .dsh-backup-modal-desc{margin:0;opacity:.7;font-size:12px;line-height:1.6}
+    .dsh-backup-modal-file{margin:8px 0 0;opacity:.9;font-size:12px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
     .dsh-backup-modal-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:16px}
     .dsh-backup-modal-done{margin-right:auto;opacity:.8;font-size:12px;min-width:0;line-height:1.5}
     .dsh-backup-restore-card .dsh-plugins-btn{flex:none;white-space:nowrap}
@@ -352,6 +354,7 @@ window.__ModuleLoader__.load({
     .dsh-backup-restore-dot{box-sizing:border-box;flex:none;width:18px;height:18px;border:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.5));border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px}
     .dsh-backup-restore-step.is-active .dsh-backup-restore-dot{border-color:var(--dsw-alias-text-muted,rgba(160,160,160,.9));background:transparent;color:inherit}
     .dsh-backup-restore-step.is-done .dsh-backup-restore-dot{border-color:var(--dsw-alias-state-success-primary,#10b981);color:var(--dsw-alias-state-success-primary,#10b981)}
+    .dsh-backup-restore-card .dsh-plugins-btn:disabled{opacity:.5;cursor:not-allowed}
     `
 
     // ---- fields.jsx ----
@@ -470,7 +473,7 @@ window.__ModuleLoader__.load({
     const PHASES = ['backupRestorePhaseVerify', 'backupRestorePhaseFiles', 'backupRestorePhaseModules', 'backupRestorePhaseDone']
     const WIDTH = 300
 
-    function RestoreOverlay({ t, open, phase, anchor, result, error, onConfirm, onClose }) {
+    function RestoreOverlay({ t, open, phase, anchor, result, error, fileName, onConfirm, onClose }) {
       const cardRef = useRef(null)
       const [pos, setPos] = useState(null)
       const done = phase >= PHASES.length - 1
@@ -527,6 +530,7 @@ window.__ModuleLoader__.load({
         children: [
           jsx('div', { className: 'dsh-backup-modal-title', children: t('backupRestoreTitle') }, 'title'),
           jsx('p', { className: 'dsh-backup-modal-desc', children: t('backupRestoreBody') }, 'desc'),
+          fileName ? jsx('p', { className: 'dsh-backup-modal-file', title: fileName, children: t('backupRestoreSelected') + '：' + fileName }, 'selected') : null,
           failed
             ? jsxs('div', {
                 className: 'dsh-backup-modal-actions',
@@ -540,7 +544,7 @@ window.__ModuleLoader__.load({
                   className: 'dsh-backup-modal-actions',
                   children: [
                     jsx('button', { type: 'button', className: 'dsh-plugins-btn dsh-plugins-btn-cancel', onClick: onClose, children: t('backupRestoreCancel') }, 'cancel'),
-                    jsx('button', { type: 'button', className: 'dsh-plugins-btn', onClick: onConfirm, children: t('backupRestoreConfirm') }, 'confirm'),
+                    jsx('button', { type: 'button', className: 'dsh-plugins-btn', onClick: onConfirm, disabled: !fileName, children: t('backupRestoreConfirm') }, 'confirm'),
                   ],
                 }, 'actions')
               : jsxs('div', {
@@ -622,6 +626,7 @@ window.__ModuleLoader__.load({
     const BACKUP_VERSIONS_ROUTE = '/api/starlong/dsh-backup/versions'
     const BACKUP_VERIFY_ROUTE = '/api/starlong/dsh-backup/verify'
     const BACKUP_RESTORE_ROUTE = '/api/starlong/dsh-backup/restore'
+    const BACKUP_UPLOAD_ROUTE = '/api/starlong/dsh-backup/upload'
 
     /** 把根绝对路径端点挂到页面 base 下，兼容带路径前缀的反向代理。 */
     function resolveApiUrl(path) {
@@ -726,7 +731,10 @@ window.__ModuleLoader__.load({
       const [restorePhase, setRestorePhase] = useState(-1)
       const [restoreResult, setRestoreResult] = useState(null)
       const [restoreError, setRestoreError] = useState('')
+      const [restoreFileName, setRestoreFileName] = useState('')
       const [importAnchor, setImportAnchor] = useState(null)
+      const fileInputRef = useRef(null)
+      const restoreFileRef = useRef(null)
       const [versions, setVersions] = useState({ count: 0, latest: null })
       const [error, setError] = useState(null)
       const [sectionOpen, setSectionOpen] = useState({})
@@ -776,6 +784,16 @@ window.__ModuleLoader__.load({
         if (!res.ok || data?.ok !== true) throw new Error(data?.error || String(res.status))
         return data
       }
+      const uploadFile = async file => {
+        const res = await fetch(resolveApiUrl(BACKUP_UPLOAD_ROUTE), {
+          method: 'POST',
+          headers: { 'content-type': 'application/octet-stream', [BACKUP_TOKEN_HEADER]: '1' },
+          body: file,
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok || data?.ok !== true) throw new Error(data?.error || String(res.status))
+        return data
+      }
       const loadVersions = async () => {
         try {
           const data = await request(BACKUP_VERSIONS_ROUTE, {})
@@ -783,19 +801,46 @@ window.__ModuleLoader__.load({
         } catch { /* 版本概览失败不影响设置页 */ }
       }
       useEffect(() => { void loadVersions() }, [])
+      // 原生文件选择器选 zip；会话内 pathFor 拿不到真实路径，保留 File 供上传字节。
+      const pickRestoreFile = event => {
+        const input = event?.target
+        const file = input?.files?.[0]
+        if (input) input.value = ''
+        if (!file) return
+        if (!/\.zip$/i.test(file.name || '')) {
+          setRestoreFileName('')
+          setRestoreError('请选择 zip 备份文件')
+          setRestoreResult(null)
+          setRestorePhase(-2)
+          setRestoreOpen(true)
+          return
+        }
+        restoreFileRef.current = file
+        setRestoreFileName(file.name)
+        setRestoreError('')
+        setRestoreResult(null)
+        setRestorePhase(-1)
+        setRestoreOpen(true)
+      }
       const runRestore = async () => {
+        const file = restoreFileRef.current
+        if (!file) return
         setRestoreError('')
         setRestoreResult(null)
         setRestorePhase(0)
         try {
-          await request(BACKUP_VERIFY_ROUTE, {})
+          const uploaded = await uploadFile(file)
+          const payload = { path: uploaded.path }
+          await request(BACKUP_VERIFY_ROUTE, payload)
           setRestorePhase(1)
-          const result = await request(BACKUP_RESTORE_ROUTE, {})
+          const result = await request(BACKUP_RESTORE_ROUTE, payload)
           setRestoreResult(result)
           setRestorePhase(3)
         } catch (e) {
           setRestoreError(e?.message || String(e))
           setRestorePhase(-2)
+        } finally {
+          restoreFileRef.current = null
         }
       }
       const closeRestore = () => { setRestoreOpen(false) }
@@ -917,6 +962,7 @@ window.__ModuleLoader__.load({
         setError(null)
         try {
           await request(BACKUP_EXPORT_ROUTE, { overrides, regex, preset: presetName || undefined, dir })
+          await loadVersions()
         } catch (e) { setError(e?.message || '') }
         finally { setExporting(false) }
       }
@@ -1175,12 +1221,21 @@ window.__ModuleLoader__.load({
             control: jsx('span', {
               ref: setImportAnchor,
               style: { display: 'inline-flex' },
-              children: jsx(Button, {
-                variant: 'ghost', size: 'sm',
-                disabled: restoreOpen,
-                onClick: () => { setRestorePhase(-1); setRestoreOpen(true) },
-                children: t('backupImportZip'),
-              }, 'import'),
+              children: [
+                jsx(Button, {
+                  variant: 'ghost', size: 'sm',
+                  disabled: restoreOpen,
+                  onClick: () => fileInputRef.current?.click(),
+                  children: t('backupImportZip'),
+                }, 'import'),
+                jsx('input', {
+                  ref: fileInputRef,
+                  type: 'file',
+                  accept: '.zip',
+                  style: { display: 'none' },
+                  onChange: pickRestoreFile,
+                }, 'file-input'),
+              ],
             }, 'import-anchor'),
           }, 'import-row'),
           jsx(SettingRow, {
@@ -1235,7 +1290,7 @@ window.__ModuleLoader__.load({
           error ? jsx('p', { className: 'dsh-backup-form-note', role: 'alert', style: { ...STYLE.hint, color: '#f87171' }, children: t('backupError') + '：' + error }, 'error') : null,
           jsx(RestoreOverlay, {
             t, open: restoreOpen, phase: restorePhase, anchor: importAnchor,
-            result: restoreResult, error: restoreError,
+            result: restoreResult, error: restoreError, fileName: restoreFileName,
             onConfirm: runRestore,
             onClose: closeRestore,
           }, 'restore-overlay'),

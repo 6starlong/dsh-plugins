@@ -18,9 +18,10 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 | 份数轮换 | 每次导出后按保留份数清理最旧的 zip，最少 3 份 |
 | 版本概览 | 只读列出备份份数与最近备份时间，显示为「x 份备份 · 最新 HH:MM」 |
 | 完整性校验 | 导出时给包内每个文件算 SHA256 写进 `_manifest.json`；校验时重算对比，发现篡改或损坏返回不符清单 |
-| 增量还原 | 校验通过后才写盘：同名文件以备份为准覆盖，备份里没有的原样保留，依赖目录整棵跳过，全程不删除 |
+| 增量还原 | 校验通过后才写盘：同名文件以备份为准覆盖，备份里没有的原样保留，依赖目录整棵跳过，全程不删除；只读文件字节一致则跳过、不一致则临时解锁写回并恢复只读属性；按上传的临时 zip 还原（兼容 `backups` 内文件名） |
 | 防滚雪球 | 备份产物 zip 硬排除，优先于任何勾选与正则；名称匹配的预设 JSON 强制注入包内，勾选与否都带 |
-| 访问控制 | 八个路由只认本机回环，除下载外均校验约定头与同源；预设名与下载文件名走白名单，路径拒绝越界 |
+| 访问控制 | 九个路由只认本机回环，除下载外均校验约定头与同源；预设名与下载文件名走白名单，包内相对路径仍拒绝越界 |
+| 导入选包 | 点「导入 ZIP」调系统文件选择器选任意目录的 zip，字节经本地回环流式上传为临时文件，按绝对路径校验并还原，结束即删；不依赖被会话接管的 `pathFor` |
 
 ## 判定顺序
 
@@ -38,7 +39,7 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 
 | 文件 | 职责 |
 |---|---|
-| `lib/index.js` | 装配模块，注册 export/download/tree/preset/reveal/versions/verify/restore 八个本地路由，含自动备份调度 |
+| `lib/index.js` | 装配模块，注册 export/download/tree/preset/reveal/versions/verify/restore/upload 九个本地路由，含自动备份调度 |
 | `lib/rules.js` | 默认词表、匹配器、扫描树、目录树描述与统计 |
 | `lib/zip.js` | 零依赖 ZIP 读写（store 模式，单包上限 4 GiB），含解析校验用的 readZip |
 | `lib/config.js` | 配置 schema：enabled / repo / intervalHours / autoBackupHours / retention / preset |
@@ -54,8 +55,9 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 | `/api/starlong/dsh-backup/download` | 下载已导出的 zip |
 | `/api/starlong/dsh-backup/reveal` | 调起系统文件管理器打开 backups 目录 |
 | `/api/starlong/dsh-backup/versions` | 只读返回备份份数与最近备份时间 |
-| `/api/starlong/dsh-backup/verify` | 校验备份包完整性，返回缺失/不符清单；不传文件名或传 latest 时取最新一份 |
-| `/api/starlong/dsh-backup/restore` | 校验通过后增量还原；`dryRun: true` 只列将写入的路径，不落盘 |
+| `/api/starlong/dsh-backup/verify` | 校验备份包完整性，返回缺失/不符清单；支持 `path` 指定本地 zip，不传时按 `name`/latest 取最新一份 |
+| `/api/starlong/dsh-backup/restore` | 校验通过后增量还原；支持 `path` 绝对路径，`dryRun: true` 只列将写入的路径，不落盘 |
+| `/api/starlong/dsh-backup/upload` | 接收本地 zip 字节，流式写临时文件并返回绝对路径，校验/还原结束即删 |
 
 ## 配置
 
@@ -68,7 +70,7 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 - [ ] 密钥加密（配置文件入包前加密，还原时解密）
 - [x] 备份完整性校验（SHA256 清单，下载后先验再还原）
 - [x] 本地备份轮换与保留份数
-- [x] 一键还原备份包
+- [x] 一键还原备份包（支持任意目录 zip 本地上传还原）
 - [x] 还原预检与 dry-run（列出将覆盖的路径）
 - [ ] 还原前快照与失败回滚
 - [ ] 还原冲突策略（合并 / 覆盖）
