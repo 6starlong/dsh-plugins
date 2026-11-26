@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
+import { FileTypeIcon, classifyFileType } from '@deepseek-ai/dsh-client-ui-primitives'
 import { STYLE } from './styles.js'
 import { DaysInput, TextInput } from './fields.jsx'
 import { BACKUP_EXPORT_ROUTE, BACKUP_DOWNLOAD_ROUTE, BACKUP_TOKEN_HEADER, BACKUP_TREE_ROUTE, BACKUP_PRESET_ROUTE, resolveApiUrl } from './api.js'
@@ -179,27 +180,52 @@ export function BackupPanel(props) {
   }
   const renderNode = (node, depth) => jsxs('div', {
     key: node.rel,
-    style: { paddingLeft: depth * 14, display: 'flex', alignItems: 'center', gap: '6px', minHeight: '26px', fontSize: '13px' },
+    className: 'dsh-backup-tree-item',
     children: [
-      node.kind === 'directory' ? jsx('button', {
-        type: 'button', className: 'dsh-plugins-btn',
-        style: { padding: '0 6px', minWidth: '22px' },
-        onClick: () => toggleExpand(node),
-        children: expanded[node.rel] ? '−' : '+',
-      }, 'toggle') : jsx('span', { style: { width: '22px', display: 'inline-block' } }, 'spacer'),
-      jsx('input', {
-        type: 'checkbox', checked: node.included,
-        ref: el => { if (el) el.indeterminate = !!node.partial },
-        onChange: () => toggleNode(node),
-        'aria-label': node.rel,
-        title: node.partial ? '部分子项未纳入（复合态）' : undefined,
-      }, 'check'),
-      jsx('span', {
-        style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: node.included ? 1 : 0.55 },
-        title: node.reason && !node.included ? node.rel + '\n' + reasonLabel(node.reason) : node.rel,
-        children: node.name,
-      }, 'name'),
-      jsx('span', { style: { width: '76px', flexShrink: 0, textAlign: 'right', opacity: 0.6, fontSize: '12px' }, children: formatBytes(node.size) }, 'size'),
+      jsxs('div', {
+        className: 'dsh-backup-tree-row',
+        style: { paddingLeft: depth * 18 },
+        children: [
+          jsx('input', {
+            type: 'checkbox', checked: node.included,
+            ref: el => { if (el) el.indeterminate = !!node.partial },
+            onChange: () => toggleNode(node),
+            onClick: event => event.stopPropagation(),
+            'aria-label': node.rel,
+            title: node.partial ? '部分子项未纳入（复合态）' : undefined,
+          }, 'check'),
+          node.kind === 'directory'
+            ? jsxs('button', {
+              type: 'button',
+              className: 'dsh-backup-tree-action',
+              'aria-expanded': !!expanded[node.rel],
+              onClick: () => toggleExpand(node),
+              children: [
+                jsx(FileTypeIcon, { kind: 'folder', size: 16, className: 'dsh-backup-tree-icon' }, 'folder'),
+                jsx('span', {
+                  className: 'dsh-backup-tree-name',
+                  style: { opacity: node.included ? 1 : 0.55 },
+                  title: node.reason && !node.included ? node.rel + '\n' + reasonLabel(node.reason) : node.rel,
+                  children: node.name,
+                }, 'name'),
+              ],
+            }, 'label')
+            : jsxs('span', {
+              className: 'dsh-backup-tree-action',
+              'aria-disabled': true,
+              children: [
+                jsx(FileTypeIcon, { kind: classifyFileType(node.name), size: 16, className: 'dsh-backup-tree-file-icon' }, 'file-icon'),
+                jsx('span', {
+                  className: 'dsh-backup-tree-name',
+                  style: { opacity: node.included ? 1 : 0.55 },
+                  title: node.reason && !node.included ? node.rel + '\n' + reasonLabel(node.reason) : node.rel,
+                  children: node.name,
+                }, 'name'),
+              ],
+            }, 'label'),
+          jsx('span', { className: 'dsh-backup-tree-size', children: formatBytes(node.size) }, 'size'),
+        ],
+      }, 'row'),
     ],
   })
   const renderTree = (nodes, depth) => (nodes || []).map(node => jsxs('div', {
@@ -217,28 +243,35 @@ export function BackupPanel(props) {
       jsx(DaysInput, { label: t('backupInterval'), suffix: t('backupIntervalSuffix'), value: state.intervalHours, max: 168, disabled: !state.writable, onCommit: props.setBackupInterval }, 'interval'),
       jsx('div', { style: STYLE.divider }, 'divider-tree'),
       jsxs('div', {
-        style: STYLE.row,
+        className: 'dsh-backup-tree-section',
         children: [
-          jsx('span', { style: STYLE.label, children: t('backupTitle') + ' · ~/.dsh' }, 'tree-label'),
-          summary ? jsx('span', {
-            style: { opacity: 0.7, fontSize: '12px', marginLeft: '10px' },
-            children: t('backupSelected') + ' ' + formatBytes(summary.includeBytes) + ' · ' + t('backupPhysical') + ' ' + formatBytes(summary.includeBytes + summary.excludeBytes),
-          }, 'summary') : null,
-          jsx('button', {
-            type: 'button', className: 'dsh-plugins-btn', disabled: loading,
-            onClick: () => reloadAll(overrides, regex),
-            children: loading ? t('backupRefreshing') : t('backupRefresh'),
-          }, 'refresh'),
+          jsxs('div', {
+            className: 'dsh-backup-tree-head',
+            children: [
+              jsx('span', { className: 'dsh-backup-tree-title', children: t('backupTitle') + ' · ~/.dsh' }, 'tree-label'),
+              summary ? jsx('span', {
+                className: 'dsh-backup-tree-summary',
+                children: t('backupSelected') + ' ' + formatBytes(summary.includeBytes) + ' · ' + t('backupPhysical') + ' ' + formatBytes(summary.includeBytes + summary.excludeBytes),
+              }, 'summary') : null,
+              jsx('span', { className: 'dsh-backup-tree-head-spacer' }, 'spacer'),
+              loading ? jsxs('span', { className: 'dsh-backup-tree-status', children: [jsx('span', { className: 'dsh-backup-tree-status-dot' }, 'dot'), t('backupRefreshing')] }, 'status') : null,
+              jsx('button', {
+                type: 'button', className: 'dsh-plugins-btn', disabled: loading,
+                onClick: () => reloadAll(overrides, regex),
+                children: t('backupRefresh'),
+              }, 'refresh'),
+            ],
+          }, 'tree-head'),
+          jsx('div', {
+            className: 'dsh-backup-tree-box',
+            children: (treeData[''] || []).length
+              ? renderTree(treeData[''], 0)
+              : loading
+                ? jsxs('div', { className: 'dsh-backup-tree-skeleton', 'aria-hidden': true, children: [70, 54, 76, 48, 62].map((w, i) => jsxs('div', { className: 'dsh-backup-tree-skeleton-row', children: [jsx('span', { className: 'dsh-backup-tree-skeleton-icon' }, 'icon'), jsx('span', { className: 'dsh-backup-tree-skeleton-line', style: { width: w + '%' } }, 'line')] }, 'sk-' + i)) }, 'skeleton')
+                : jsxs('div', { className: 'dsh-backup-tree-empty', children: [jsx(FileTypeIcon, { kind: 'folder', size: 28, className: 'dsh-backup-tree-empty-icon' }, 'empty-icon'), jsx('span', { children: t('backupEmpty') }, 'empty-title'), jsx('span', { className: 'dsh-backup-tree-empty-hint', children: t('backupEmptyHint') }, 'empty-hint')] }, 'tree-empty'),
+          }, 'tree'),
         ],
-      }, 'tree-head'),
-      jsx('div', {
-        style: {
-          marginTop: '8px', maxHeight: '320px', overflowY: 'auto',
-          border: '1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35))',
-          borderRadius: '6px', padding: '6px',
-        },
-        children: renderTree(treeData[''], 0),
-      }, 'tree'),
+      }, 'tree-section'),
       jsxs('div', {
         style: { marginTop: '10px' },
         children: [

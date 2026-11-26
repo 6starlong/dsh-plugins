@@ -15,6 +15,8 @@ export const MESSAGES = {
     backupRegexPending: '有未应用的修改',
     backupRefresh: '刷新目录',
     backupRefreshing: '扫描中…',
+    backupEmpty: '暂无可备份内容',
+    backupEmptyHint: '扫描完成后可在此勾选纳入项',
     backupPresetName: '预设名称',
     backupSavePreset: '保存勾选为预设',
     backupAdjusted: '手动调整',

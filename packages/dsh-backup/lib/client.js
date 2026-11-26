@@ -6,6 +6,7 @@ window.__ModuleLoader__.load({
     var exports = module.exports;
     const { useSyncExternalStore, useState, useEffect } = require("react")
     const { jsx, jsxs } = require("react/jsx-runtime")
+    const { FileTypeIcon, classifyFileType } = require("@deepseek-ai/dsh-client-ui-primitives")
 
     // ---- constants.js ----
     /** npm 包名：plugins.bundle.config 的槽位 key。 */
@@ -164,6 +165,8 @@ window.__ModuleLoader__.load({
         backupRegexPending: '有未应用的修改',
         backupRefresh: '刷新目录',
         backupRefreshing: '扫描中…',
+        backupEmpty: '暂无可备份内容',
+        backupEmptyHint: '扫描完成后可在此勾选纳入项',
         backupPresetName: '预设名称',
         backupSavePreset: '保存勾选为预设',
         backupAdjusted: '手动调整',
@@ -208,6 +211,37 @@ window.__ModuleLoader__.load({
     .dsh-plugins-btn-danger{background:transparent;border-color:rgba(217,72,65,.55);color:#e06c66}
     .dsh-plugins-btn-danger:hover:not(:disabled){background:rgba(217,72,65,.14);border-color:rgba(217,72,65,.85)}
     .dsh-plugins-btn-danger:active:not(:disabled){transform:translateY(1px)}
+    /* 备份树按档案清单设计：标题区承载状态，内容区沿用 DSH 侧边栏的行密度与图标语义。 */
+    .dsh-backup-tree-section{margin-top:2px}
+    .dsh-backup-tree-head{display:flex;align-items:center;gap:10px;min-height:32px}
+    .dsh-backup-tree-title{font-size:14px;font-weight:600;letter-spacing:.01em}
+    .dsh-backup-tree-summary{font-size:12px;color:var(--dsw-alias-label-secondary,inherit);opacity:.75;font-variant-numeric:tabular-nums}
+    .dsh-backup-tree-head-spacer{flex:1}
+    .dsh-backup-tree-status{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));border-radius:999px;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.12));font-size:11px;color:var(--dsw-alias-label-secondary,inherit)}
+    .dsh-backup-tree-status-dot{width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-warn-primary,#f59e0b);box-shadow:0 0 0 3px rgba(245,158,11,.12);animation:dsh-backup-pulse 1.2s ease-in-out infinite}
+    @keyframes dsh-backup-pulse{0%,100%{opacity:.45}50%{opacity:1}}
+    .dsh-backup-tree-box{margin-top:10px;min-height:180px;max-height:320px;overflow-y:auto;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));border-radius:8px;padding:8px;background:var(--dsw-alias-bg-layer-2,rgba(128,128,128,.06));box-shadow:inset 0 1px 0 rgba(255,255,255,.02)}
+    .dsh-backup-tree-skeleton{display:flex;flex-direction:column;gap:4px;padding:4px 2px}
+    .dsh-backup-tree-skeleton-row{display:flex;align-items:center;gap:10px;min-height:32px;padding:5px 10px}
+    .dsh-backup-tree-skeleton-icon{width:16px;height:16px;border-radius:4px;background:var(--dsw-alias-bg-layer-3,rgba(128,128,128,.18));animation:dsh-backup-shimmer 1.2s ease-in-out infinite}
+    .dsh-backup-tree-skeleton-line{height:10px;border-radius:999px;background:var(--dsw-alias-bg-layer-3,rgba(128,128,128,.18));animation:dsh-backup-shimmer 1.2s ease-in-out infinite}
+    @keyframes dsh-backup-shimmer{0%,100%{opacity:.35}50%{opacity:.7}}
+    .dsh-backup-tree-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:162px;border:1px dashed var(--dsw-alias-border-l2,rgba(128,128,128,.35));border-radius:6px;color:var(--dsw-alias-label-secondary,inherit)}
+    .dsh-backup-tree-empty-icon{color:var(--dsw-alias-state-warn-primary,#f59e0b);opacity:.55}
+    .dsh-backup-tree-empty-hint{font-size:12px;opacity:.55}
+    .dsh-backup-tree-item{margin:0;padding:0}
+    .dsh-backup-tree-row{display:flex;align-items:center;width:100%;min-width:0;min-height:32px;border-radius:var(--dsw-radius-md,6px)}
+    .dsh-backup-tree-row input[type=checkbox]{flex:0 0 auto;margin:0 4px 0 0;accent-color:var(--dsw-alias-state-warn-primary,#f59e0b);cursor:pointer}
+    .dsh-backup-tree-action{display:flex;flex:1;gap:6px;align-items:center;min-width:0;padding:5px 10px;color:inherit;font:inherit;text-align:left;background:transparent;border:0;border-radius:var(--dsw-radius-md,6px)}
+    button.dsh-backup-tree-action{cursor:pointer}
+    span.dsh-backup-tree-action{cursor:default}
+    .dsh-backup-tree-action:focus-visible{outline:2px solid var(--dsw-alias-brand-primary,#d97757);outline-offset:-2px}
+    .dsh-backup-tree-row:hover .dsh-backup-tree-action{background:var(--dsw-alias-interactive-bg-hover,rgba(128,128,128,.12))}
+    .dsh-backup-tree-icon{flex:0 0 auto;color:var(--dsw-alias-state-warn-primary,#f59e0b)}
+    .dsh-backup-tree-file-icon{flex:0 0 auto}
+    .dsh-backup-tree-name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px}
+    .dsh-backup-tree-size{flex:0 0 76px;padding-right:10px;text-align:right;opacity:.6;font-size:12px;font-variant-numeric:tabular-nums}
+    @media (prefers-reduced-motion:reduce){.dsh-backup-tree-status-dot,.dsh-backup-tree-skeleton-icon,.dsh-backup-tree-skeleton-line{animation:none}}
     `
 
     // ---- fields.jsx ----
@@ -340,6 +374,7 @@ window.__ModuleLoader__.load({
     }
 
     // ---- BackupPanel.jsx ----
+
 
 
 
@@ -520,27 +555,52 @@ window.__ModuleLoader__.load({
       }
       const renderNode = (node, depth) => jsxs('div', {
         key: node.rel,
-        style: { paddingLeft: depth * 14, display: 'flex', alignItems: 'center', gap: '6px', minHeight: '26px', fontSize: '13px' },
+        className: 'dsh-backup-tree-item',
         children: [
-          node.kind === 'directory' ? jsx('button', {
-            type: 'button', className: 'dsh-plugins-btn',
-            style: { padding: '0 6px', minWidth: '22px' },
-            onClick: () => toggleExpand(node),
-            children: expanded[node.rel] ? '−' : '+',
-          }, 'toggle') : jsx('span', { style: { width: '22px', display: 'inline-block' } }, 'spacer'),
-          jsx('input', {
-            type: 'checkbox', checked: node.included,
-            ref: el => { if (el) el.indeterminate = !!node.partial },
-            onChange: () => toggleNode(node),
-            'aria-label': node.rel,
-            title: node.partial ? '部分子项未纳入（复合态）' : undefined,
-          }, 'check'),
-          jsx('span', {
-            style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', opacity: node.included ? 1 : 0.55 },
-            title: node.reason && !node.included ? node.rel + '\n' + reasonLabel(node.reason) : node.rel,
-            children: node.name,
-          }, 'name'),
-          jsx('span', { style: { width: '76px', flexShrink: 0, textAlign: 'right', opacity: 0.6, fontSize: '12px' }, children: formatBytes(node.size) }, 'size'),
+          jsxs('div', {
+            className: 'dsh-backup-tree-row',
+            style: { paddingLeft: depth * 18 },
+            children: [
+              jsx('input', {
+                type: 'checkbox', checked: node.included,
+                ref: el => { if (el) el.indeterminate = !!node.partial },
+                onChange: () => toggleNode(node),
+                onClick: event => event.stopPropagation(),
+                'aria-label': node.rel,
+                title: node.partial ? '部分子项未纳入（复合态）' : undefined,
+              }, 'check'),
+              node.kind === 'directory'
+                ? jsxs('button', {
+                  type: 'button',
+                  className: 'dsh-backup-tree-action',
+                  'aria-expanded': !!expanded[node.rel],
+                  onClick: () => toggleExpand(node),
+                  children: [
+                    jsx(FileTypeIcon, { kind: 'folder', size: 16, className: 'dsh-backup-tree-icon' }, 'folder'),
+                    jsx('span', {
+                      className: 'dsh-backup-tree-name',
+                      style: { opacity: node.included ? 1 : 0.55 },
+                      title: node.reason && !node.included ? node.rel + '\n' + reasonLabel(node.reason) : node.rel,
+                      children: node.name,
+                    }, 'name'),
+                  ],
+                }, 'label')
+                : jsxs('span', {
+                  className: 'dsh-backup-tree-action',
+                  'aria-disabled': true,
+                  children: [
+                    jsx(FileTypeIcon, { kind: classifyFileType(node.name), size: 16, className: 'dsh-backup-tree-file-icon' }, 'file-icon'),
+                    jsx('span', {
+                      className: 'dsh-backup-tree-name',
+                      style: { opacity: node.included ? 1 : 0.55 },
+                      title: node.reason && !node.included ? node.rel + '\n' + reasonLabel(node.reason) : node.rel,
+                      children: node.name,
+                    }, 'name'),
+                  ],
+                }, 'label'),
+              jsx('span', { className: 'dsh-backup-tree-size', children: formatBytes(node.size) }, 'size'),
+            ],
+          }, 'row'),
         ],
       })
       const renderTree = (nodes, depth) => (nodes || []).map(node => jsxs('div', {
@@ -558,28 +618,35 @@ window.__ModuleLoader__.load({
           jsx(DaysInput, { label: t('backupInterval'), suffix: t('backupIntervalSuffix'), value: state.intervalHours, max: 168, disabled: !state.writable, onCommit: props.setBackupInterval }, 'interval'),
           jsx('div', { style: STYLE.divider }, 'divider-tree'),
           jsxs('div', {
-            style: STYLE.row,
+            className: 'dsh-backup-tree-section',
             children: [
-              jsx('span', { style: STYLE.label, children: t('backupTitle') + ' · ~/.dsh' }, 'tree-label'),
-              summary ? jsx('span', {
-                style: { opacity: 0.7, fontSize: '12px', marginLeft: '10px' },
-                children: t('backupSelected') + ' ' + formatBytes(summary.includeBytes) + ' · ' + t('backupPhysical') + ' ' + formatBytes(summary.includeBytes + summary.excludeBytes),
-              }, 'summary') : null,
-              jsx('button', {
-                type: 'button', className: 'dsh-plugins-btn', disabled: loading,
-                onClick: () => reloadAll(overrides, regex),
-                children: loading ? t('backupRefreshing') : t('backupRefresh'),
-              }, 'refresh'),
+              jsxs('div', {
+                className: 'dsh-backup-tree-head',
+                children: [
+                  jsx('span', { className: 'dsh-backup-tree-title', children: t('backupTitle') + ' · ~/.dsh' }, 'tree-label'),
+                  summary ? jsx('span', {
+                    className: 'dsh-backup-tree-summary',
+                    children: t('backupSelected') + ' ' + formatBytes(summary.includeBytes) + ' · ' + t('backupPhysical') + ' ' + formatBytes(summary.includeBytes + summary.excludeBytes),
+                  }, 'summary') : null,
+                  jsx('span', { className: 'dsh-backup-tree-head-spacer' }, 'spacer'),
+                  loading ? jsxs('span', { className: 'dsh-backup-tree-status', children: [jsx('span', { className: 'dsh-backup-tree-status-dot' }, 'dot'), t('backupRefreshing')] }, 'status') : null,
+                  jsx('button', {
+                    type: 'button', className: 'dsh-plugins-btn', disabled: loading,
+                    onClick: () => reloadAll(overrides, regex),
+                    children: t('backupRefresh'),
+                  }, 'refresh'),
+                ],
+              }, 'tree-head'),
+              jsx('div', {
+                className: 'dsh-backup-tree-box',
+                children: (treeData[''] || []).length
+                  ? renderTree(treeData[''], 0)
+                  : loading
+                    ? jsxs('div', { className: 'dsh-backup-tree-skeleton', 'aria-hidden': true, children: [70, 54, 76, 48, 62].map((w, i) => jsxs('div', { className: 'dsh-backup-tree-skeleton-row', children: [jsx('span', { className: 'dsh-backup-tree-skeleton-icon' }, 'icon'), jsx('span', { className: 'dsh-backup-tree-skeleton-line', style: { width: w + '%' } }, 'line')] }, 'sk-' + i)) }, 'skeleton')
+                    : jsxs('div', { className: 'dsh-backup-tree-empty', children: [jsx(FileTypeIcon, { kind: 'folder', size: 28, className: 'dsh-backup-tree-empty-icon' }, 'empty-icon'), jsx('span', { children: t('backupEmpty') }, 'empty-title'), jsx('span', { className: 'dsh-backup-tree-empty-hint', children: t('backupEmptyHint') }, 'empty-hint')] }, 'tree-empty'),
+              }, 'tree'),
             ],
-          }, 'tree-head'),
-          jsx('div', {
-            style: {
-              marginTop: '8px', maxHeight: '320px', overflowY: 'auto',
-              border: '1px solid var(--dsw-alias-border-l2, rgba(128, 128, 128, 0.35))',
-              borderRadius: '6px', padding: '6px',
-            },
-            children: renderTree(treeData[''], 0),
-          }, 'tree'),
+          }, 'tree-section'),
           jsxs('div', {
             style: { marginTop: '10px' },
             children: [
