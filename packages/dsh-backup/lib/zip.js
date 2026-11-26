@@ -28,10 +28,11 @@ function dosNow() {
 }
 
 /**
- * 写入 zip。entries 为 [{ path?, rel, data? }]，rel 是包内相对路径；data 为内存条目（如清单）。
+ * 写入 zip。entries 为 [{ path?, rel, data? }]，rel 是包内相对路径；data 可为 Buffer 或惰性函数（清单在写入时才生成）。
+ * onEntry 在每条 data 就绪后回调，供调用方顺带算指纹，避免二次读盘。
  * @returns {{bytes:number, count:number}}
  */
-export async function writeZip(outputPath, entries, onProgress) {
+export async function writeZip(outputPath, entries, onProgress, onEntry) {
   const handle = await open(outputPath, 'w')
   const encoder = new TextEncoder()
   const { time, date } = dosNow()
@@ -41,8 +42,9 @@ export async function writeZip(outputPath, entries, onProgress) {
   try {
     for (const entry of entries) {
       const name = Buffer.from(encoder.encode(entry.rel.replace(/\\/g, '/')))
-      const data = entry.data ?? await readFile(entry.path)
+      const data = typeof entry.data === 'function' ? entry.data() : (entry.data ?? await readFile(entry.path))
       const crc = crc32(data)
+      onEntry?.(entry.rel, data)
       const local = Buffer.alloc(30 + name.length)
       local.writeUInt32LE(0x04034B50, 0)
       local.writeUInt16LE(20, 4)
@@ -103,4 +105,39 @@ export async function writeZip(outputPath, entries, onProgress) {
   } finally {
     await handle.close()
   }
+}
+
+/**
+ * 解析 store 模式 zip，返回 [{ rel, data, method }]；结构损坏时抛错。
+ * 只用于校验：store 模式的 data 即原始字节，可直接重算指纹。
+ */
+export function readZip(buffer) {
+  const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer)
+  let eocd = -1
+  const floor = Math.max(0, buf.length - 22 - 65535)
+  for (let i = buf.length - 22; i >= floor; i--) {
+    if (buf.readUInt32LE(i) === 0x06054B50) { eocd = i; break }
+  }
+  if (eocd < 0) throw new Error('invalid zip: missing eocd')
+  const count = buf.readUInt16LE(eocd + 10)
+  let cursor = buf.readUInt32LE(eocd + 16)
+  const entries = []
+  for (let i = 0; i < count; i++) {
+    if (cursor + 46 > buf.length || buf.readUInt32LE(cursor) !== 0x02014B50) throw new Error('invalid zip: bad central header')
+    const method = buf.readUInt16LE(cursor + 10)
+    const size = buf.readUInt32LE(cursor + 20)
+    const nameLen = buf.readUInt16LE(cursor + 28)
+    const extraLen = buf.readUInt16LE(cursor + 30)
+    const commentLen = buf.readUInt16LE(cursor + 32)
+    const local = buf.readUInt32LE(cursor + 42)
+    const name = buf.subarray(cursor + 46, cursor + 46 + nameLen).toString('utf8')
+    if (local + 30 > buf.length || buf.readUInt32LE(local) !== 0x04034B50) throw new Error('invalid zip: bad local header')
+    const localNameLen = buf.readUInt16LE(local + 26)
+    const localExtraLen = buf.readUInt16LE(local + 28)
+    const start = local + 30 + localNameLen + localExtraLen
+    if (start + size > buf.length) throw new Error('invalid zip: truncated data')
+    entries.push({ rel: name.replace(/\\/g, '/'), data: buf.subarray(start, start + size), method })
+    cursor += 46 + nameLen + extraLen + commentLen
+  }
+  return entries
 }

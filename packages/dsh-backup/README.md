@@ -17,6 +17,7 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 | 定时备份 | 按上一次备份时刻判断，DSH 运行期间到点自动导出；启动时已超时立即补一份，未超时不补 |
 | 份数轮换 | 每次导出后按保留份数清理最旧的 zip，最少 3 份 |
 | 版本概览 | 只读列出备份份数与最近备份时间，显示为「x 份备份 · 最新 HH:MM」 |
+| 完整性校验 | 导出时给包内每个文件算 SHA256 写进 `_manifest.json`；校验时重算对比，发现篡改或损坏返回不符清单 |
 | 访问控制 | 六个路由只认本机回环，除下载外均校验约定头与同源；预设名与下载文件名走白名单，路径拒绝越界 |
 
 ## 判定顺序
@@ -36,7 +37,7 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 |---|---|
 | `lib/index.js` | 装配模块，注册 export/download/tree/preset/reveal/versions 六个本地路由，含自动备份调度 |
 | `lib/rules.js` | 默认词表、匹配器、扫描树、目录树描述与统计 |
-| `lib/zip.js` | 零依赖 ZIP writer（store 模式，单包上限 4 GiB） |
+| `lib/zip.js` | 零依赖 ZIP 读写（store 模式，单包上限 4 GiB），含解析校验用的 readZip |
 | `lib/config.js` | 配置 schema：enabled / repo / intervalHours / autoBackupHours / retention / preset |
 | `lib/schema.js` | schemastery 解析与找不到时的空壳兜底 |
 
@@ -50,6 +51,7 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 | `/api/starlong/dsh-backup/download` | 下载已导出的 zip |
 | `/api/starlong/dsh-backup/reveal` | 调起系统文件管理器打开 backups 目录 |
 | `/api/starlong/dsh-backup/versions` | 只读返回备份份数与最近备份时间 |
+| `/api/starlong/dsh-backup/verify` | 校验备份包完整性，返回缺失/不符清单 |
 
 ## 配置
 
@@ -60,7 +62,7 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 
 - [ ] GitHub 指定仓库目录定时同步
 - [ ] 密钥加密（配置文件入包前加密，还原时解密）
-- [ ] 备份完整性校验（SHA256 清单，下载后先验再还原）
+- [x] 备份完整性校验（SHA256 清单，下载后先验再还原）
 - [x] 本地备份轮换与保留份数
 - [ ] 一键还原备份包
 - [ ] 还原预检与 dry-run（列出将覆盖的路径）

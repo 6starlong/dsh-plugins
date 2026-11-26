@@ -2,11 +2,12 @@
  * DSH 备份模块：按规则预设扫描 ~/.dsh 并导出 zip。
  * @module dsh-plugins/dsh-backup/index
  */
+import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { buildMatcher, dshHome, describeChildren, scanTree, DEFAULT_PRESET } from './rules.js'
-import { writeZip } from './zip.js'
+import { readZip, writeZip } from './zip.js'
 
 export { Config } from './config.js'
 
@@ -25,6 +26,7 @@ const TREE_ROUTE = '/api/starlong/dsh-backup/tree'
 const PRESET_ROUTE = '/api/starlong/dsh-backup/preset'
 const REVEAL_ROUTE = '/api/starlong/dsh-backup/reveal'
 const VERSIONS_ROUTE = '/api/starlong/dsh-backup/versions'
+const VERIFY_ROUTE = '/api/starlong/dsh-backup/verify'
 
 /** volatile 代理取真实值。 */
 function unwrap(raw, fallback) {
@@ -174,10 +176,37 @@ async function createBackup(home, options, ctx, preset, outDirOverride) {
     overrides: options.overrides, regex: options.regex,
     stats: scanned.stats,
     excluded: scanned.excluded,
+    checksums: {},
   }
-  const entries = [...scanned.included, { rel: '_manifest.json', data: Buffer.from(JSON.stringify(manifest, null, 2), 'utf8') }]
-  const result = await writeZip(join(outDir, zipName), entries)
+  // 清单是最后一个条目，惰性生成以便拿到 onEntry 已填好的指纹；每个文件只读一次盘
+  const entries = [...scanned.included, { rel: '_manifest.json', data: () => Buffer.from(JSON.stringify(manifest, null, 2), 'utf8') }]
+  const result = await writeZip(join(outDir, zipName), entries, undefined, (rel, data) => {
+    if (rel !== '_manifest.json') manifest.checksums[rel] = createHash('sha256').update(data).digest('hex')
+  })
   return { name: zipName, bytes: result.bytes, ...scanned.stats }
+}
+
+/** 校验备份包完整性：对清单内每个文件重算 SHA256，返回缺失与不符清单。 */
+async function verifyBackup(filePath) {
+  let entries, manifest
+  try {
+    entries = readZip(await readFile(filePath))
+    const meta = entries.find(entry => entry.rel === '_manifest.json')
+    if (!meta) return { ok: false, error: 'missing manifest' }
+    manifest = JSON.parse(meta.data.toString('utf8'))
+  } catch (error) {
+    return { ok: false, error: error?.message || String(error) }
+  }
+  const checksums = manifest.checksums !== null && typeof manifest.checksums === 'object' ? manifest.checksums : {}
+  const byRel = new Map(entries.filter(entry => entry.rel !== '_manifest.json').map(entry => [entry.rel, entry]))
+  const missing = []
+  const mismatch = []
+  for (const [rel, expected] of Object.entries(checksums)) {
+    const entry = byRel.get(rel)
+    if (!entry) { missing.push(rel); continue }
+    if (createHash('sha256').update(entry.data).digest('hex') !== expected) mismatch.push(rel)
+  }
+  return { ok: missing.length === 0 && mismatch.length === 0, count: Object.keys(checksums).length, missing, mismatch }
 }
 
 /** 命名预设只在 backups/presets 下读写，名称白名单防路径穿越。 */
@@ -208,7 +237,7 @@ function safeRel(value) {
 }
 
 /**
- * 装配模块。只注册导出/下载/树/预设/打开目录/版本路由；开关关闭时不注册。
+ * 装配模块。只注册导出/下载/树/预设/打开目录/版本/校验路由；开关关闭时不注册。
  * @param {import('@deepseek-ai/cordis').Context} ctx - 宿主上下文。
  * @param {unknown} config - 套件 config。
  */
@@ -344,6 +373,19 @@ export function apply(ctx, config) {
       sendJson(response, 200, { ok: true, count: times.length, latest })
     }
 
+    /** 校验本地备份包：只认约定头与回环同源，文件名走白名单，返回缺失/不符清单。 */
+    const onVerify = async (request, response) => {
+      if (rejectByConnection(ctx, request, response)) return
+      if (!isTrustedExport(request)) return sendJson(response, 403, { ok: false, error: 'forbidden' })
+      let name = ''
+      try {
+        name = new URL(request?.url ?? '/', 'http://localhost').searchParams.get('name') ?? ''
+      } catch { return sendJson(response, 400, { ok: false, error: 'bad request' }) }
+      if (!ZIP_NAME.test(name)) return sendJson(response, 400, { ok: false, error: 'bad name' })
+      const result = await verifyBackup(join(dshHome(), EXPORT_DIR, basename(name)))
+      sendJson(response, result.ok ? 200 : 409, result)
+    }
+
     /** 启动即检查一次，之后每分钟复查：距最近备份满间隔就备一份；DSH 关闭时随 effect 停止。 */
     const CHECK_MS = 60_000
     let timer
@@ -379,6 +421,7 @@ export function apply(ctx, config) {
       webServer.register({ kind: 'exact', path: PRESET_ROUTE, handler: onPreset }),
       webServer.register({ kind: 'exact', path: REVEAL_ROUTE, handler: onReveal }),
       webServer.register({ kind: 'exact', path: VERSIONS_ROUTE, handler: onVersions }),
+      webServer.register({ kind: 'exact', path: VERIFY_ROUTE, handler: onVerify }),
     ]
     return () => {
       clearInterval(timer)
