@@ -7,6 +7,9 @@ import { lstat, readdir } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { homedir } from 'node:os'
 
+/** 备份产物文件名：硬排除，优先于勾选与正则，防止备份套备份滚雪球。 */
+const ZIP_ARCHIVE = /^dsh-backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip$/i
+
 /** 形态层默认词表：作为初始勾选与排除依据；归属层是内置常量，不在此配置。 */
 export const DEFAULT_PRESET = {
   // 大体积二进制可再生产物与 SQLite sidecar；用户数据格式（mp3/mp4/zip/png）不在此，靠归属判断。
@@ -109,6 +112,8 @@ export function buildDecider(matcher, overrides) {
     : []
   const decide = (rel, name, isDirectory, skipParentSegs = true) => {
     const norm = String(rel).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').toLowerCase()
+    // 备份产物硬排除先于 overrides：任何勾选与正则都不能把它重新纳入。
+    if (!isDirectory && ZIP_ARCHIVE.test(name)) return { included: false, reason: 'backupArchive' }
     let hit = null
     let best = -1
     for (const [key, value] of list) {

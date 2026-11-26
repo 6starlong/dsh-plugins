@@ -4,7 +4,7 @@
  */
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { spawn } from 'node:child_process'
 import { buildMatcher, dshHome, describeChildren, scanTree, DEFAULT_PRESET } from './rules.js'
 import { readZip, writeZip } from './zip.js'
@@ -20,6 +20,7 @@ const DOWNLOAD_ROUTE = '/api/starlong/dsh-backup/download'
 const TOKEN_HEADER = 'x-starlong-backup'
 const EXPORT_DIR = 'backups'
 const PRESET_DIR = join(EXPORT_DIR, 'presets')
+const PRESET_REL = EXPORT_DIR + '/presets'
 const ZIP_NAME = /^dsh-backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip$/
 const PRESET_NAME = /^[A-Za-z0-9_-]{1,40}$/
 const TREE_ROUTE = '/api/starlong/dsh-backup/tree'
@@ -27,6 +28,7 @@ const PRESET_ROUTE = '/api/starlong/dsh-backup/preset'
 const REVEAL_ROUTE = '/api/starlong/dsh-backup/reveal'
 const VERSIONS_ROUTE = '/api/starlong/dsh-backup/versions'
 const VERIFY_ROUTE = '/api/starlong/dsh-backup/verify'
+const RESTORE_ROUTE = '/api/starlong/dsh-backup/restore'
 
 /** volatile 代理取真实值。 */
 function unwrap(raw, fallback) {
@@ -158,6 +160,20 @@ async function pruneBackups(home, keepRaw) {
   return removed
 }
 
+/** 预设强制注入：按真实相对路径进包，还原时原样写回 backups/presets。 */
+async function collectPresetEntries(home) {
+  const entries = []
+  let names
+  try { names = await readdir(join(home, PRESET_DIR)) } catch { return entries }
+  for (const name of names) {
+    if (!name.endsWith('.json') || !PRESET_NAME.test(name.slice(0, -5))) continue
+    try {
+      entries.push({ rel: PRESET_REL + '/' + name, data: await readFile(join(home, PRESET_DIR, name)) })
+    } catch { /* 扫描期间消失 */ }
+  }
+  return entries
+}
+
 /** 扫描并写一份 zip 到指定目录（默认 backups），返回统计；手动导出与自动备份共用。 */
 async function createBackup(home, options, ctx, preset, outDirOverride) {
   const matcher = buildMatcher(DEFAULT_PRESET, options.regex)
@@ -178,12 +194,16 @@ async function createBackup(home, options, ctx, preset, outDirOverride) {
     excluded: scanned.excluded,
     checksums: {},
   }
+  // 预设强制入包，不受勾选影响；按 rel 去重，避免 overrides 已纳入时重复条目。
+  const presets = await collectPresetEntries(home)
+  const known = new Set(scanned.included.map(item => item.rel))
+  const injected = presets.filter(item => !known.has(item.rel))
   // 清单是最后一个条目，惰性生成以便拿到 onEntry 已填好的指纹；每个文件只读一次盘
-  const entries = [...scanned.included, { rel: '_manifest.json', data: () => Buffer.from(JSON.stringify(manifest, null, 2), 'utf8') }]
+  const entries = [...scanned.included, ...injected, { rel: '_manifest.json', data: () => Buffer.from(JSON.stringify(manifest, null, 2), 'utf8') }]
   const result = await writeZip(join(outDir, zipName), entries, undefined, (rel, data) => {
     if (rel !== '_manifest.json') manifest.checksums[rel] = createHash('sha256').update(data).digest('hex')
   })
-  return { name: zipName, bytes: result.bytes, ...scanned.stats }
+  return { name: zipName, bytes: result.bytes, ...scanned.stats, injectedPresets: injected.length }
 }
 
 /** 校验备份包完整性：对清单内每个文件重算 SHA256，返回缺失与不符清单。 */
@@ -207,6 +227,66 @@ async function verifyBackup(filePath) {
     if (createHash('sha256').update(entry.data).digest('hex') !== expected) mismatch.push(rel)
   }
   return { ok: missing.length === 0 && mismatch.length === 0, count: Object.keys(checksums).length, missing, mismatch }
+}
+
+/** 从 backups 选备份：显式文件名走白名单，空值或 latest 取最新一份。 */
+async function resolveBackupName(home, name) {
+  if (typeof name === 'string' && name !== '' && name !== 'latest') {
+    return ZIP_NAME.test(name) ? name : null
+  }
+  let names
+  try { names = await readdir(join(home, EXPORT_DIR)) } catch { return null }
+  const list = names.map(n => ({ n, t: stampTime(n) })).filter(x => x.t !== null)
+  if (list.length === 0) return null
+  list.sort((a, b) => b.t - a.t || b.n.localeCompare(a.n))
+  return list[0].n
+}
+
+/** 兼容前端 POST body 与既有 GET query 两种传名方式。 */
+function requestName(request, body) {
+  if (typeof body?.name === 'string' && body.name !== '') return body.name
+  try { return new URL(request?.url ?? '/', 'http://localhost').searchParams.get('name') ?? '' } catch { return '' }
+}
+
+/**
+ * 增量还原：只写备份包里的文件，同名覆盖，不删除原有文件，依赖目录整棵跳过。
+ * 校验不通过时一个字节都不写；dryRun 只返回将要写入的路径。
+ */
+async function restoreBackup(filePath, home, dryRun) {
+  let entries
+  try {
+    entries = readZip(await readFile(filePath))
+  } catch (error) {
+    return { ok: false, code: 'read', error: error?.message || String(error) }
+  }
+  if (!entries.some(entry => entry.rel === '_manifest.json')) {
+    return { ok: false, code: 'manifest', error: 'missing manifest' }
+  }
+  const verified = await verifyBackup(filePath)
+  if (!verified.ok) {
+    return { ok: false, code: 'integrity', error: 'integrity check failed', missing: verified.missing, mismatch: verified.mismatch }
+  }
+  const files = []
+  let written = 0
+  let overwritten = 0
+  let skippedDependencies = 0
+  let skippedConflicts = 0
+  for (const entry of entries) {
+    if (entry.rel === '_manifest.json') continue
+    const rel = safeRel(entry.rel)
+    if (rel === null) return { ok: false, code: 'unsafe', error: 'unsafe path: ' + entry.rel }
+    if (rel.split('/').includes('node_modules')) { skippedDependencies++; continue }
+    const target = join(home, rel)
+    const current = await stat(target).catch(() => null)
+    if (current?.isDirectory()) { skippedConflicts++; continue }
+    files.push({ rel, action: current ? 'overwrite' : 'create' })
+    if (dryRun) continue
+    await mkdir(dirname(target), { recursive: true })
+    await writeFile(target, entry.data)
+    if (current) overwritten++
+    else written++
+  }
+  return { ok: true, dryRun: Boolean(dryRun), total: files.length, written, overwritten, skippedDependencies, skippedConflicts, files }
 }
 
 /** 命名预设只在 backups/presets 下读写，名称白名单防路径穿越。 */
@@ -237,7 +317,7 @@ function safeRel(value) {
 }
 
 /**
- * 装配模块。只注册导出/下载/树/预设/打开目录/版本/校验路由；开关关闭时不注册。
+ * 装配模块。只注册导出/下载/树/预设/打开目录/版本/校验/还原路由；开关关闭时不注册。
  * @param {import('@deepseek-ai/cordis').Context} ctx - 宿主上下文。
  * @param {unknown} config - 套件 config。
  */
@@ -377,13 +457,29 @@ export function apply(ctx, config) {
     const onVerify = async (request, response) => {
       if (rejectByConnection(ctx, request, response)) return
       if (!isTrustedExport(request)) return sendJson(response, 403, { ok: false, error: 'forbidden' })
-      let name = ''
-      try {
-        name = new URL(request?.url ?? '/', 'http://localhost').searchParams.get('name') ?? ''
-      } catch { return sendJson(response, 400, { ok: false, error: 'bad request' }) }
-      if (!ZIP_NAME.test(name)) return sendJson(response, 400, { ok: false, error: 'bad name' })
-      const result = await verifyBackup(join(dshHome(), EXPORT_DIR, basename(name)))
+      const body = await readJsonBody(request) ?? {}
+      const home = dshHome()
+      const name = await resolveBackupName(home, requestName(request, body))
+      if (name === null) return sendJson(response, 400, { ok: false, error: 'bad name' })
+      const result = await verifyBackup(join(home, EXPORT_DIR, basename(name)))
       sendJson(response, result.ok ? 200 : 409, result)
+    }
+
+    /** 增量还原：校验通过后只覆盖同名文件，不删原有文件，依赖目录跳过。 */
+    const onRestore = async (request, response) => {
+      if (rejectByConnection(ctx, request, response)) return
+      if (!isTrustedExport(request)) return sendJson(response, 403, { ok: false, error: 'forbidden' })
+      const body = await readJsonBody(request) ?? {}
+      const home = dshHome()
+      const name = await resolveBackupName(home, requestName(request, body))
+      if (name === null) return sendJson(response, 400, { ok: false, error: 'bad name' })
+      try {
+        const result = await restoreBackup(join(home, EXPORT_DIR, basename(name)), home, body?.dryRun === true)
+        sendJson(response, result.ok ? 200 : 409, result)
+      } catch (error) {
+        ctx.logger?.warn?.('[dsh-plugins] 还原失败：' + (error?.message || String(error)))
+        sendJson(response, 500, { ok: false, error: error?.message || String(error) })
+      }
     }
 
     /** 启动即检查一次，之后每分钟复查：距最近备份满间隔就备一份；DSH 关闭时随 effect 停止。 */
@@ -422,6 +518,7 @@ export function apply(ctx, config) {
       webServer.register({ kind: 'exact', path: REVEAL_ROUTE, handler: onReveal }),
       webServer.register({ kind: 'exact', path: VERSIONS_ROUTE, handler: onVersions }),
       webServer.register({ kind: 'exact', path: VERIFY_ROUTE, handler: onVerify }),
+      webServer.register({ kind: 'exact', path: RESTORE_ROUTE, handler: onRestore }),
     ]
     return () => {
       clearInterval(timer)

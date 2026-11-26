@@ -4,8 +4,9 @@ import { Button, Input, FileTypeIcon, classifyFileType } from '@deepseek-ai/dsh-
 import { STYLE } from './styles.js'
 import { DaysInput, TextInput } from './fields.jsx'
 import { SettingRow } from './components/SettingRow.jsx'
+import { RestoreOverlay } from './components/RestoreOverlay.jsx'
 import { DisclosureRow } from './components/DisclosureRow.jsx'
-import { BACKUP_EXPORT_ROUTE, BACKUP_TOKEN_HEADER, BACKUP_TREE_ROUTE, BACKUP_PRESET_ROUTE, BACKUP_REVEAL_ROUTE, BACKUP_VERSIONS_ROUTE, resolveApiUrl } from './api.js'
+import { BACKUP_EXPORT_ROUTE, BACKUP_TOKEN_HEADER, BACKUP_TREE_ROUTE, BACKUP_PRESET_ROUTE, BACKUP_REVEAL_ROUTE, BACKUP_VERSIONS_ROUTE, BACKUP_VERIFY_ROUTE, BACKUP_RESTORE_ROUTE, resolveApiUrl } from './api.js'
 import { SegmentedControl } from './components/SegmentedControl.jsx'
 
 /** 体积显示：保留一位小数，避免长数字撑破布局。 */
@@ -39,7 +40,7 @@ export function reasonLabel(reason) {
   return {
     override: '手动排除', regex: '自定义规则', clientDir: '客户端运行目录',
     dependency: '依赖目录', pathSegment: '可再生目录',
-    extension: '可再生文件', namePattern: '临时或锁文件',
+    extension: '可再生文件', namePattern: '临时或锁文件', backupArchive: '备份产物',
   }[key] || '已排除'
 }
 
@@ -60,6 +61,11 @@ export function BackupPanel(props) {
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [backingUp, setBackingUp] = useState(false)
+  const [restoreOpen, setRestoreOpen] = useState(false)
+  const [restorePhase, setRestorePhase] = useState(-1)
+  const [restoreResult, setRestoreResult] = useState(null)
+  const [restoreError, setRestoreError] = useState('')
+  const [importAnchor, setImportAnchor] = useState(null)
   const [versions, setVersions] = useState({ count: 0, latest: null })
   const [error, setError] = useState(null)
   const [sectionOpen, setSectionOpen] = useState({})
@@ -116,6 +122,22 @@ export function BackupPanel(props) {
     } catch { /* 版本概览失败不影响设置页 */ }
   }
   useEffect(() => { void loadVersions() }, [])
+  const runRestore = async () => {
+    setRestoreError('')
+    setRestoreResult(null)
+    setRestorePhase(0)
+    try {
+      await request(BACKUP_VERIFY_ROUTE, {})
+      setRestorePhase(1)
+      const result = await request(BACKUP_RESTORE_ROUTE, {})
+      setRestoreResult(result)
+      setRestorePhase(3)
+    } catch (e) {
+      setRestoreError(e?.message || String(e))
+      setRestorePhase(-2)
+    }
+  }
+  const closeRestore = () => { setRestoreOpen(false) }
   useEffect(() => {
     const active = state.preset || ''
     if (active && active !== presetName) {
@@ -489,11 +511,16 @@ export function BackupPanel(props) {
       }, 'export-row'),
       jsx(SettingRow, {
         label: t('backupImport'),
-        control: jsx(Button, {
-          variant: 'ghost', size: 'sm',
-          onClick: () => {},
-          children: t('backupImportZip'),
-        }, 'import'),
+        control: jsx('span', {
+          ref: setImportAnchor,
+          style: { display: 'inline-flex' },
+          children: jsx(Button, {
+            variant: 'ghost', size: 'sm',
+            disabled: restoreOpen,
+            onClick: () => { setRestorePhase(-1); setRestoreOpen(true) },
+            children: t('backupImportZip'),
+          }, 'import'),
+        }, 'import-anchor'),
       }, 'import-row'),
       jsx(SettingRow, {
         label: t('backupAutoBackup'),
@@ -545,6 +572,12 @@ export function BackupPanel(props) {
         }, 'backup-now'),
       }, 'version-row'),
       error ? jsx('p', { className: 'dsh-backup-form-note', role: 'alert', style: { ...STYLE.hint, color: '#f87171' }, children: t('backupError') + '：' + error }, 'error') : null,
+      jsx(RestoreOverlay, {
+        t, open: restoreOpen, phase: restorePhase, anchor: importAnchor,
+        result: restoreResult, error: restoreError,
+        onConfirm: runRestore,
+        onClose: closeRestore,
+      }, 'restore-overlay'),
     ],
   })
 }

@@ -112,4 +112,18 @@ span.dsh-backup-tree-action{cursor:default}
 .dsh-backup-tree-name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px}
 .dsh-backup-tree-size{box-sizing:border-box;justify-self:end;width:96px;padding-right:12px;text-align:right;white-space:nowrap;opacity:.6;font-size:12px;font-variant-numeric:tabular-nums}
 @media (prefers-reduced-motion:reduce){.dsh-backup-tree-skeleton-icon,.dsh-backup-tree-skeleton-line{animation:none}}
+/* 一键还原浮层：锚定导入按钮的小卡片，无全屏遮罩；演示阶段只推进状态。 */
+.dsh-backup-restore-card{padding:16px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));border-radius:8px;background:var(--dsw-alias-bg-layer-3,rgba(32,32,32,.98));color:inherit;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.dsh-backup-modal-title{font-weight:600;font-size:15px;margin-bottom:8px}
+.dsh-backup-modal-desc{margin:0;opacity:.7;font-size:12px;line-height:1.6}
+.dsh-backup-modal-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:16px}
+.dsh-backup-modal-done{margin-right:auto;opacity:.8;font-size:12px;min-width:0;line-height:1.5}
+.dsh-backup-restore-card .dsh-plugins-btn{flex:none;white-space:nowrap}
+.dsh-backup-restore-steps{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+.dsh-backup-restore-step{display:flex;align-items:center;gap:10px;font-size:13px;opacity:.5}
+.dsh-backup-restore-step.is-active{opacity:1;font-weight:500}
+.dsh-backup-restore-step.is-done{opacity:.75}
+.dsh-backup-restore-dot{box-sizing:border-box;flex:none;width:18px;height:18px;border:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.5));border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px}
+.dsh-backup-restore-step.is-active .dsh-backup-restore-dot{border-color:var(--dsw-alias-text-muted,rgba(160,160,160,.9));background:transparent;color:inherit}
+.dsh-backup-restore-step.is-done .dsh-backup-restore-dot{border-color:var(--dsw-alias-state-success-primary,#10b981);color:var(--dsw-alias-state-success-primary,#10b981)}
 `

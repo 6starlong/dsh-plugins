@@ -4,7 +4,7 @@ window.__ModuleLoader__.load({
   factory: function (require) {
     var module = { exports: {} };
     var exports = module.exports;
-    const { useSyncExternalStore, useState, useEffect, useRef } = require("react")
+    const { useSyncExternalStore, useEffect, useLayoutEffect, useRef, useState } = require("react")
     const { jsx, jsxs } = require("react/jsx-runtime")
     const { Input, Button, FileTypeIcon, classifyFileType } = require("@deepseek-ai/dsh-client-ui-primitives")
 
@@ -205,6 +205,18 @@ window.__ModuleLoader__.load({
         backupBackupNow: '立即备份',
         backupExporting: '导出中…',
         backupError: '导出失败',
+        backupRestoreTitle: '一键还原',
+        backupRestoreBody: '把备份的文件恢复到 ~/.dsh：只增量覆盖，不删除原有文件，也不改动已装依赖。',
+        backupRestoreConfirm: '开始还原',
+        backupRestoreCancel: '取消',
+        backupRestoreClose: '关闭',
+        backupRestorePhaseVerify: '校验备份包',
+        backupRestorePhaseFiles: '恢复文件',
+        backupRestorePhaseModules: '保留已装依赖',
+        backupRestorePhaseDone: '还原完成',
+        backupRestoreDone: '还原完成',
+        backupRestoreFailed: '还原失败',
+        backupRestoreSummary: '新增 {added} 个文件，覆盖 {overwritten} 个，已装依赖未重复安装。',
         backupConfigure: '配置',
         backupEdit: '编辑',
         backupCollapse: '收起',
@@ -326,6 +338,20 @@ window.__ModuleLoader__.load({
     .dsh-backup-tree-name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px}
     .dsh-backup-tree-size{box-sizing:border-box;justify-self:end;width:96px;padding-right:12px;text-align:right;white-space:nowrap;opacity:.6;font-size:12px;font-variant-numeric:tabular-nums}
     @media (prefers-reduced-motion:reduce){.dsh-backup-tree-skeleton-icon,.dsh-backup-tree-skeleton-line{animation:none}}
+    /* 一键还原浮层：锚定导入按钮的小卡片，无全屏遮罩；演示阶段只推进状态。 */
+    .dsh-backup-restore-card{padding:16px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));border-radius:8px;background:var(--dsw-alias-bg-layer-3,rgba(32,32,32,.98));color:inherit;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+    .dsh-backup-modal-title{font-weight:600;font-size:15px;margin-bottom:8px}
+    .dsh-backup-modal-desc{margin:0;opacity:.7;font-size:12px;line-height:1.6}
+    .dsh-backup-modal-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:16px}
+    .dsh-backup-modal-done{margin-right:auto;opacity:.8;font-size:12px;min-width:0;line-height:1.5}
+    .dsh-backup-restore-card .dsh-plugins-btn{flex:none;white-space:nowrap}
+    .dsh-backup-restore-steps{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+    .dsh-backup-restore-step{display:flex;align-items:center;gap:10px;font-size:13px;opacity:.5}
+    .dsh-backup-restore-step.is-active{opacity:1;font-weight:500}
+    .dsh-backup-restore-step.is-done{opacity:.75}
+    .dsh-backup-restore-dot{box-sizing:border-box;flex:none;width:18px;height:18px;border:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.5));border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px}
+    .dsh-backup-restore-step.is-active .dsh-backup-restore-dot{border-color:var(--dsw-alias-text-muted,rgba(160,160,160,.9));background:transparent;color:inherit}
+    .dsh-backup-restore-step.is-done .dsh-backup-restore-dot{border-color:var(--dsw-alias-state-success-primary,#10b981);color:var(--dsw-alias-state-success-primary,#10b981)}
     `
 
     // ---- fields.jsx ----
@@ -437,6 +463,117 @@ window.__ModuleLoader__.load({
       }, 'row')
     }
 
+    // ---- components/RestoreOverlay.jsx ----
+
+
+    /** 一键还原确认与进度浮层；锚定导入按钮的小卡片，校验与恢复由服务端真实执行。 */
+    const PHASES = ['backupRestorePhaseVerify', 'backupRestorePhaseFiles', 'backupRestorePhaseModules', 'backupRestorePhaseDone']
+    const WIDTH = 300
+
+    function RestoreOverlay({ t, open, phase, anchor, result, error, onConfirm, onClose }) {
+      const cardRef = useRef(null)
+      const [pos, setPos] = useState(null)
+      const done = phase >= PHASES.length - 1
+      const failed = phase === -2
+      const busy = phase >= 0 && !done && !failed
+
+      useLayoutEffect(() => {
+        if (!open || !anchor) { setPos(null); return }
+        const update = () => {
+          const rect = anchor.getBoundingClientRect()
+          const h = cardRef.current?.offsetHeight || 200
+          let left = rect.right + 8
+          if (left + WIDTH > window.innerWidth - 16) left = Math.max(16, rect.left - WIDTH - 8)
+          const top = Math.min(Math.max(16, rect.top), Math.max(16, window.innerHeight - 16 - h))
+          setPos(prev => prev && prev.top === top && prev.left === left ? prev : { top, left })
+        }
+        update()
+        window.addEventListener('scroll', update, true)
+        window.addEventListener('resize', update)
+        return () => {
+          window.removeEventListener('scroll', update, true)
+          window.removeEventListener('resize', update)
+        }
+      }, [open, anchor, phase])
+
+      // 点击外部关闭；延后一帧挂载，避免打开浮层的那次 pointerdown 立刻关掉。
+      useEffect(() => {
+        if (!open || pos === null) return undefined
+        let remove = () => {}
+        const frame = requestAnimationFrame(() => {
+          const onPointerDown = event => {
+            if (busy || cardRef.current?.contains(event.target) || anchor?.contains(event.target)) return
+            onClose()
+          }
+          document.addEventListener('pointerdown', onPointerDown, true)
+          remove = () => document.removeEventListener('pointerdown', onPointerDown, true)
+        })
+        return () => { cancelAnimationFrame(frame); remove() }
+      }, [open, pos, busy, anchor, onClose])
+
+      if (!open || pos === null) return null
+      const confirming = phase < 0
+      const summary = result
+        ? t('backupRestoreSummary')
+            .replace('{added}', String(result.written ?? 0))
+            .replace('{overwritten}', String(result.overwritten ?? 0))
+        : t('backupRestoreDone')
+      return jsx('div', {
+        ref: cardRef,
+        role: 'dialog',
+        'aria-label': t('backupRestoreTitle'),
+        className: 'dsh-backup-restore-card',
+        style: { position: 'fixed', top: pos.top, left: pos.left, zIndex: 10000, width: WIDTH, boxSizing: 'border-box', border: '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.35))' },
+        children: [
+          jsx('div', { className: 'dsh-backup-modal-title', children: t('backupRestoreTitle') }, 'title'),
+          jsx('p', { className: 'dsh-backup-modal-desc', children: t('backupRestoreBody') }, 'desc'),
+          failed
+            ? jsxs('div', {
+                className: 'dsh-backup-modal-actions',
+                children: [
+                  jsx('span', { className: 'dsh-backup-modal-done', style: { color: '#f87171' }, children: t('backupRestoreFailed') + '：' + (error || '') }, 'failed-note'),
+                  jsx('button', { type: 'button', className: 'dsh-plugins-btn', onClick: onClose, children: t('backupRestoreClose') }, 'close'),
+                ],
+              }, 'failed-actions')
+            : confirming
+              ? jsxs('div', {
+                  className: 'dsh-backup-modal-actions',
+                  children: [
+                    jsx('button', { type: 'button', className: 'dsh-plugins-btn dsh-plugins-btn-cancel', onClick: onClose, children: t('backupRestoreCancel') }, 'cancel'),
+                    jsx('button', { type: 'button', className: 'dsh-plugins-btn', onClick: onConfirm, children: t('backupRestoreConfirm') }, 'confirm'),
+                  ],
+                }, 'actions')
+              : jsxs('div', {
+                  className: 'dsh-backup-modal-body',
+                  children: [
+                    jsxs('ul', {
+                      className: 'dsh-backup-restore-steps',
+                      children: PHASES.map((key, i) => {
+                        const finished = i < phase || done
+                        return jsxs('li', {
+                          className: 'dsh-backup-restore-step' + (finished ? ' is-done' : '') + (i === phase && !done ? ' is-active' : ''),
+                          children: [
+                            jsx('span', { className: 'dsh-backup-restore-dot', children: finished ? '✓' : '' }, 'dot-' + i),
+                            jsx('span', { children: t(key) }, 'label-' + i),
+                          ],
+                        }, 'step-' + i)
+                      }),
+                    }, 'steps'),
+                    done
+                      ? jsxs('div', {
+                          className: 'dsh-backup-modal-actions',
+                          children: [
+                            jsx('span', { className: 'dsh-backup-modal-done', children: summary }, 'done-note'),
+                            jsx('button', { type: 'button', className: 'dsh-plugins-btn', onClick: onClose, children: t('backupRestoreClose') }, 'close'),
+                          ],
+                        }, 'done-actions')
+                      : null,
+                  ],
+                }, 'body'),
+        ],
+      }, 'card')
+    }
+
     // ---- components/DisclosureRow.jsx ----
 
 
@@ -483,6 +620,8 @@ window.__ModuleLoader__.load({
     const BACKUP_PRESET_ROUTE = '/api/starlong/dsh-backup/preset'
     const BACKUP_REVEAL_ROUTE = '/api/starlong/dsh-backup/reveal'
     const BACKUP_VERSIONS_ROUTE = '/api/starlong/dsh-backup/versions'
+    const BACKUP_VERIFY_ROUTE = '/api/starlong/dsh-backup/verify'
+    const BACKUP_RESTORE_ROUTE = '/api/starlong/dsh-backup/restore'
 
     /** 把根绝对路径端点挂到页面 base 下，兼容带路径前缀的反向代理。 */
     function resolveApiUrl(path) {
@@ -530,6 +669,7 @@ window.__ModuleLoader__.load({
 
 
 
+
     /** 体积显示：保留一位小数，避免长数字撑破布局。 */
     function formatBytes(bytes) {
       const n = Number(bytes) || 0
@@ -561,7 +701,7 @@ window.__ModuleLoader__.load({
       return {
         override: '手动排除', regex: '自定义规则', clientDir: '客户端运行目录',
         dependency: '依赖目录', pathSegment: '可再生目录',
-        extension: '可再生文件', namePattern: '临时或锁文件',
+        extension: '可再生文件', namePattern: '临时或锁文件', backupArchive: '备份产物',
       }[key] || '已排除'
     }
 
@@ -582,6 +722,11 @@ window.__ModuleLoader__.load({
       const [loading, setLoading] = useState(false)
       const [exporting, setExporting] = useState(false)
       const [backingUp, setBackingUp] = useState(false)
+      const [restoreOpen, setRestoreOpen] = useState(false)
+      const [restorePhase, setRestorePhase] = useState(-1)
+      const [restoreResult, setRestoreResult] = useState(null)
+      const [restoreError, setRestoreError] = useState('')
+      const [importAnchor, setImportAnchor] = useState(null)
       const [versions, setVersions] = useState({ count: 0, latest: null })
       const [error, setError] = useState(null)
       const [sectionOpen, setSectionOpen] = useState({})
@@ -638,6 +783,22 @@ window.__ModuleLoader__.load({
         } catch { /* 版本概览失败不影响设置页 */ }
       }
       useEffect(() => { void loadVersions() }, [])
+      const runRestore = async () => {
+        setRestoreError('')
+        setRestoreResult(null)
+        setRestorePhase(0)
+        try {
+          await request(BACKUP_VERIFY_ROUTE, {})
+          setRestorePhase(1)
+          const result = await request(BACKUP_RESTORE_ROUTE, {})
+          setRestoreResult(result)
+          setRestorePhase(3)
+        } catch (e) {
+          setRestoreError(e?.message || String(e))
+          setRestorePhase(-2)
+        }
+      }
+      const closeRestore = () => { setRestoreOpen(false) }
       useEffect(() => {
         const active = state.preset || ''
         if (active && active !== presetName) {
@@ -1011,11 +1172,16 @@ window.__ModuleLoader__.load({
           }, 'export-row'),
           jsx(SettingRow, {
             label: t('backupImport'),
-            control: jsx(Button, {
-              variant: 'ghost', size: 'sm',
-              onClick: () => {},
-              children: t('backupImportZip'),
-            }, 'import'),
+            control: jsx('span', {
+              ref: setImportAnchor,
+              style: { display: 'inline-flex' },
+              children: jsx(Button, {
+                variant: 'ghost', size: 'sm',
+                disabled: restoreOpen,
+                onClick: () => { setRestorePhase(-1); setRestoreOpen(true) },
+                children: t('backupImportZip'),
+              }, 'import'),
+            }, 'import-anchor'),
           }, 'import-row'),
           jsx(SettingRow, {
             label: t('backupAutoBackup'),
@@ -1067,6 +1233,12 @@ window.__ModuleLoader__.load({
             }, 'backup-now'),
           }, 'version-row'),
           error ? jsx('p', { className: 'dsh-backup-form-note', role: 'alert', style: { ...STYLE.hint, color: '#f87171' }, children: t('backupError') + '：' + error }, 'error') : null,
+          jsx(RestoreOverlay, {
+            t, open: restoreOpen, phase: restorePhase, anchor: importAnchor,
+            result: restoreResult, error: restoreError,
+            onConfirm: runRestore,
+            onClose: closeRestore,
+          }, 'restore-overlay'),
         ],
       })
     }
