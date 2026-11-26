@@ -1,18 +1,18 @@
 import { jsx, jsxs } from 'react/jsx-runtime'
 
-/** 统一设置行：左侧名称，右侧控件与补充说明。 */
-export function SettingRow({ label, control, note }) {
+/** 统一设置行：左侧标题与描述，右侧表单控件。 */
+export function SettingRow({ label, description, control }) {
   return jsxs('div', {
     className: 'dsh-backup-setting-row',
     children: [
-      jsx('span', { className: 'dsh-backup-setting-label', children: label }, 'label'),
       jsxs('div', {
-        className: 'dsh-backup-setting-control',
+        className: 'dsh-backup-setting-text',
         children: [
-          control,
-          note ? jsx('span', { className: 'dsh-backup-setting-note', children: note }, 'note') : null,
+          jsx('span', { className: 'dsh-backup-setting-label', children: label }, 'label'),
+          description ? jsx('span', { className: 'dsh-backup-setting-desc', children: description }, 'desc') : null,
         ],
-      }, 'control'),
+      }, 'text'),
+      jsx('div', { className: 'dsh-backup-setting-control', children: control }, 'control'),
     ],
   }, 'row')
 }

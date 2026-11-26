@@ -1,9 +1,10 @@
 import { jsx, jsxs } from 'react/jsx-runtime'
+import { Input } from '@deepseek-ai/dsh-client-ui-primitives'
 import { STYLE } from './styles.js'
 
 /** 天数输入：默认作为独立行；bare 模式只返回控件，交给 SettingRow 排列。 */
 export function DaysInput({ label, suffix, value, max, disabled, onCommit, bare }) {
-  const input = jsx('input', {
+  const input = jsx(Input, {
     type: 'number',
     min: 1,
     max,
@@ -38,7 +39,7 @@ export function DaysInput({ label, suffix, value, max, disabled, onCommit, bare 
 
 /** 文本输入：失焦或回车提交；bare 模式只返回控件。 */
 export function TextInput({ label, value, disabled, onCommit, bare }) {
-  const input = jsx('input', {
+  const input = jsx(Input, {
     type: 'text',
     key: value,
     defaultValue: value,

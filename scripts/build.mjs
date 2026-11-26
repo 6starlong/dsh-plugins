@@ -40,7 +40,7 @@ async function readPanels() {
       ';(function () {',
       '  var module = { exports: {} };',
       '  var exports = module.exports;',
-      ...code.split('\n').map(line => '  ' + line),
+      ...code.split('\n').map(line => (line === '' ? '' : '  ' + line)),
       '  __PANEL_MODULES__[' + JSON.stringify(pkg.name) + '] = Object.assign({',
       '    id: ' + JSON.stringify(pkg.name) + ',',
       '    section: ' + JSON.stringify(client.section || entry.name) + ',',

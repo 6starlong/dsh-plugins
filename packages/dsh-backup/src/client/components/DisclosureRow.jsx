@@ -1,19 +1,33 @@
 import { jsx, jsxs } from 'react/jsx-runtime'
+import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 
-/** 可折叠设置行：标题与摘要常驻，点击展开下面的大块内容。 */
-export function DisclosureRow({ label, summary, open, onToggle, children }) {
+/** 折叠行：左侧固定标题与描述，右侧配置区按钮才触发展开。 */
+export function DisclosureRow({ label, description, open, onToggle, actionLabel, children }) {
   return jsxs('div', {
-    className: 'dsh-backup-disclosure' + (open ? ' is-open' : ''),
+    className: 'dsh-backup-disclosure',
     children: [
-      jsxs('button', {
-        type: 'button',
-        className: 'dsh-backup-disclosure-head',
-        'aria-expanded': !!open,
-        onClick: onToggle,
+      jsxs('div', {
+        className: 'dsh-backup-setting-row',
         children: [
-          jsx('span', { className: 'dsh-backup-disclosure-label', children: label }, 'label'),
-          jsx('span', { className: 'dsh-backup-disclosure-summary', children: summary }, 'summary'),
-          jsx('span', { className: 'dsh-backup-disclosure-caret', 'aria-hidden': true }, 'caret'),
+          jsxs('div', {
+            className: 'dsh-backup-setting-text',
+            children: [
+              jsx('span', { className: 'dsh-backup-setting-label', children: label }, 'label'),
+              description ? jsx('span', { className: 'dsh-backup-setting-desc', children: description }, 'desc') : null,
+            ],
+          }, 'text'),
+          jsxs('div', {
+            className: 'dsh-backup-setting-control',
+            children: [
+              jsx(Button, {
+                variant: 'ghost', size: 'sm',
+                'aria-expanded': !!open,
+                className: 'dsh-backup-disclosure-toggle',
+                onClick: onToggle,
+                children: actionLabel,
+              }, 'toggle'),
+            ],
+          }, 'control'),
         ],
       }, 'head'),
       open ? jsx('div', { className: 'dsh-backup-disclosure-body', children }, 'body') : null,
