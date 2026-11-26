@@ -7,6 +7,7 @@
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { bundleClient } from './bundle-client.mjs'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const SRC = join(ROOT, 'src', 'client')
@@ -14,25 +15,33 @@ const LIB = join(ROOT, 'lib')
 const OUTPUT = join(LIB, 'client.js')
 const EXTERNAL = ['@deepseek-ai/dsh-client-ui-primitives', 'react/jsx-runtime', 'react']
 
-function rewrite(code) {
-  let out = code
-  out = out.replace(/^import\s*\{([^}]*)\}\s*from\s*'([^']+)'\s*$/gm, (_all, names, from) => {
-    if (!EXTERNAL.includes(from)) throw new Error('未声明的外部依赖：' + from)
-    const bindings = names.split(',').map(part => part.trim()).filter(Boolean)
-      .map(part => part.replace(/\s+as\s+/, ': '))
-    return 'const { ' + bindings.join(', ') + ' } = require(' + JSON.stringify(from) + ')'
-  })
-  if (/^import\s/m.test(out)) throw new Error('还有没改写的 import 语句，先支持它再发布')
-  if (/^export\s/m.test(out)) throw new Error('闭包产物里不能有 export，客户端入口只注册自己')
-  return out
-}
+/** 需要在主包卡片里嵌入配置面板的独立 npm 包；titleKey 指向根包文案键。 */
+const PANEL_PACKAGES = [{ dir: 'dsh-disk-cleanup', id: 'dsh-disk-cleanup', titleKey: 'title', descriptionKey: 'description' }]
 
-async function readSources() {
-  const names = (await readdir(SRC)).filter(name => name.endsWith('.js') || name.endsWith('.jsx')).sort()
-  const parts = []
-  for (const name of names) {
-    const code = await readFile(join(SRC, name), 'utf8')
-    parts.push('// ---- ' + name + ' ----\n' + rewrite(code).trimEnd())
+/**
+ * 构建期内联子包面板源码：宿主只加载启动清单里的 bundle，不会自动加载依赖包的 client。
+ * 每份面板放进独立闭包，避免模块内部的 module.exports 覆盖主包导出。
+ * @returns {Promise<string>} 面板模块表与注册语句。
+ */
+async function readPanels() {
+  const parts = ['var __PANEL_MODULES__ = {};']
+  for (const meta of PANEL_PACKAGES) {
+    const pkg = JSON.parse(await readFile(join(ROOT, 'packages', meta.dir, 'package.json'), 'utf8'))
+    const file = join(ROOT, 'packages', meta.dir, 'src', 'client', 'index.jsx')
+    const code = await bundleClient({ srcDir: join(ROOT, 'packages', meta.dir, 'src', 'client'), external: EXTERNAL })
+    parts.push([
+      ';(function () {',
+      '  var module = { exports: {} };',
+      '  var exports = module.exports;',
+      ...code.split('\n').map(line => '  ' + line),
+      '  __PANEL_MODULES__[' + JSON.stringify(meta.id) + '] = Object.assign({',
+      '    id: ' + JSON.stringify(meta.id) + ',',
+      '    titleKey: ' + JSON.stringify(meta.titleKey) + ',',
+      '    descriptionKey: ' + JSON.stringify(meta.descriptionKey) + ',',
+      '    version: ' + JSON.stringify(pkg.version) + ',',
+      '  }, module.exports);',
+      '})();',
+    ].join('\n'))
   }
   return parts.join('\n\n')
 }
@@ -54,9 +63,7 @@ function wrap(body, packageName) {
 }
 
 const pkg = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'))
-const cleanupPkg = JSON.parse(await readFile(join(ROOT, 'packages', 'dsh-disk-cleanup', 'package.json'), 'utf8'))
-const body = (await readSources()).replace('__DISK_CLEANUP_VERSION__', cleanupPkg.version)
-if (body.includes('__DISK_CLEANUP_VERSION__')) throw new Error('磁盘清理版本占位符未替换')
+const body = (await readPanels()) + '\n\n' + (await bundleClient({ srcDir: SRC, external: EXTERNAL }))
 await mkdir(LIB, { recursive: true })
 const output = wrap(body, pkg.name)
 await writeFile(OUTPUT, output, 'utf8')

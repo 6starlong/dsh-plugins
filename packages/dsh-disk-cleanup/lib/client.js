@@ -4,29 +4,10 @@ window.__ModuleLoader__.load({
   factory: function (require) {
     var module = { exports: {} };
     var exports = module.exports;
-    // ---- index.jsx ----
-    /**
-     * dsh-disk-cleanup 的浏览器半边：「过期清理」配置卡片。
-     *
-     * 宿主按 schema 自动生成的表单只有字段、没有说明与文案，所以宿主侧关掉自动表单
-     * （见 lib/index.js 的 settings.configure），由本文件在 plugins.bundle.config 槽里
-     * 渲染一张自己的卡片。
-     *
-     * 槽位 key 按 npm 包名（宿主按包名判断详情页要不要出配置区），配置表单的
-     * 命名空间按 bundle id 短名（scope 化后两者不同，不能共用一个常量）。
-     *
-     * 这张卡片只碰 autoCleanup（是否自动清理）与 cleanupMaxAgeDays（保留天数）两个
-     * volatile 字段，其余字段仍走 cordis.patch.yml。
-     *
-     * @module dsh-disk-cleanup/client
-     */
-    const { Switch, SettingsForm, SettingsFormModel, settingsNumberField, SettingsValueField } = require("@deepseek-ai/dsh-client-ui-primitives")
+    const { Switch, SettingsForm, SettingsValueField, SettingsFormModel, settingsNumberField } = require("@deepseek-ai/dsh-client-ui-primitives")
     const { jsx, jsxs } = require("react/jsx-runtime")
-    /*
-     * 客户端插件的身份（name / inject）由入口在 factory 里挂到 module.exports 上：
-     * 宿主 ModuleLoader 读的就是这个导出对象，闭包产物里不能写 export。
-     */
 
+    // ---- constants.js ----
     /** npm 包名：plugins.bundle.config 的槽位 key。 */
     const PLUGIN_PACKAGE = '@6starlong/dsh-disk-cleanup'
     /** 配置表单命名空间：bundle id 短名，与 cordis.patch.yml 的 id 一致。 */
@@ -37,13 +18,7 @@ window.__ModuleLoader__.load({
     /** 保留天数默认值，与 lib/config.js 的 schema 默认值保持一致；输入框留空时置灰显示。 */
     const DEFAULT_MAX_AGE_DAYS = '3'
 
-    /** 卡片里最小的必要样式：开关行左右排布、说明文字弱化。 */
-    const STYLE = {
-      row: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' },
-      label: { fontWeight: 600 },
-      hint: { margin: '4px 0 12px', opacity: 0.7, fontSize: '12px' },
-    }
-
+    // ---- messages.js ----
     /** 文案。宿主界面是中文，随宿主语言只给一份中文。 */
     const MESSAGES = {
       zh: {
@@ -64,18 +39,18 @@ window.__ModuleLoader__.load({
       },
     }
 
-    /**
-     * 布尔字段：开关写 'true' / 'false' 文本，再由 parse 变成真正的布尔值。
-     * @param {string} field - 字段名。
-     * @returns {object} 字段转换规则。
-     */
-    function booleanField(field) {
-      return {
-        field,
-        format: value => String(value !== false),
-        parse: text => ({ kind: 'set', value: text === 'true' }),
-      }
+    // ---- styles.js ----
+    /** 卡片里最小的必要样式：开关行左右排布、说明文字弱化。 */
+    const STYLE = {
+      row: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' },
+      label: { fontWeight: 600 },
+      hint: { margin: '4px 0 12px', opacity: 0.7, fontSize: '12px' },
     }
+
+    // ---- CleanupCard.jsx ----
+
+
+
 
     /**
      * 表单外框的文案。
@@ -140,6 +115,24 @@ window.__ModuleLoader__.load({
       })
     }
 
+    // ---- controller.js ----
+
+
+
+
+    /**
+     * 布尔字段：开关写 'true' / 'false' 文本，再由 parse 变成真正的布尔值。
+     * @param {string} field - 字段名。
+     * @returns {object} 字段转换规则。
+     */
+    function booleanField(field) {
+      return {
+        field,
+        format: value => String(value !== false),
+        parse: text => ({ kind: 'set', value: text === 'true' }),
+      }
+    }
+
     /**
      * 表单模型与卡片状态的接线。
      */
@@ -168,29 +161,54 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 创建可复用的配置面板：同一份组件既服务独立详情页，也供主包卡片原样嵌入。
+     * @param {object} ctx - 客户端根上下文。
+     * @param {object} scope - 已收敛到 dsh-disk-cleanup 段的配置表单作用域。
+     * @returns {object} 面板组件、文案与注入钩子。
+     */
+    function create(ctx, scope) {
+      ctx.effect(() => ctx.locale.register(NS, MESSAGES), 'dsh-disk-cleanup 文案')
+      const t = ctx.locale.bind(NS)
+      const card = new CleanupCardController(scope)
+      const injected = card.inject()
+      return {
+        Component: CleanupCard,
+        t,
+        inject: () => injected,
+        dispose: () => card.dispose(),
+      }
+    }
+
+    // ---- index.jsx ----
+    /**
+     * dsh-disk-cleanup 的浏览器半边：apply 只负责独立详情页注册。
+     * 配置面板本体拆在 CleanupCard.jsx / controller.js，构建期由 scripts/bundle-client.mjs 内联。
+     */
+
+
+    /**
      * 客户端插件入口。
      * @param {object} ctx - 客户端根上下文。
      */
     function apply(ctx) {
-      ctx.effect(() => ctx.locale.register(NS, MESSAGES), 'dsh-disk-cleanup 文案')
-      const t = ctx.locale.bind(NS)
-      const card = new CleanupCardController(ctx.configForms.get(CONFIG_NS))
+      const panel = create(ctx, ctx.configForms.get(CONFIG_NS))
       ctx.effect(() => () => {
         try {
-          card.dispose()
+          panel.dispose()
         } catch { /* 宿主回收表单服务后，表单已经自己关掉了 */ }
       }, 'dsh-disk-cleanup 表单')
       ctx.effect(() => ctx.configForms.whileServed([CONFIG_NS], () => ctx.slots.inject('plugins.bundle.config', () => ctx.slots.register({
         name: 'plugins.bundle.config',
         key: PLUGIN_PACKAGE,
         locale: NS,
-        inject: () => card.inject(),
-      }, CleanupCard))), 'dsh-disk-cleanup 卡片')
+        inject: () => panel.inject(),
+      }, panel.Component))), 'dsh-disk-cleanup 卡片')
     }
 
     module.exports.name = '@6starlong/dsh-disk-cleanup'
     module.exports.inject = ['slots', 'locale', 'configForms']
     module.exports.apply = apply
+    module.exports.create = create
     return module.exports;
   },
 });
