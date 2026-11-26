@@ -23,9 +23,11 @@ export const BACKUP_CSS = `
 .dsh-plugins-btn-danger{background:transparent;border-color:rgba(217,72,65,.55);color:#e06c66}
 .dsh-plugins-btn-danger:hover:not(:disabled){background:rgba(217,72,65,.14);border-color:rgba(217,72,65,.85)}
 .dsh-plugins-btn-danger:active:not(:disabled){transform:translateY(1px)}
+.dsh-backup-form button.dsh-backup-danger-text{color:#e06c66}
+.dsh-backup-form button.dsh-backup-danger-text:hover:not(:disabled){color:#f87171;background:rgba(217,72,65,.14)}
 /* 统一设置清单：左侧标题与描述，右侧表单控件；行间用淡顶边，最后一行无线。 */
 .dsh-backup-form{--dsh-backup-radius:8px}
-.dsh-backup-form button:not(.dsh-backup-tree-action):not(.dsh-backup-select-option),
+.dsh-backup-form button:not(.dsh-backup-tree-action):not(.dsh-backup-select-option):not(.dsh-backup-segment):not(.dsh-backup-tree-revert),
 .dsh-backup-form input:not([type=checkbox]){box-sizing:border-box;height:28px;min-height:28px;padding:0 10px;border-radius:var(--dsh-backup-radius)!important;font:inherit;font-size:13px}
 .dsh-backup-form textarea{border-radius:var(--dsh-backup-radius)!important;font-size:13px}
 .dsh-backup-number-input,.dsh-backup-text-input,.dsh-backup-preset-name{border-radius:var(--dsh-backup-radius)!important}
@@ -42,7 +44,7 @@ export const BACKUP_CSS = `
 .dsh-backup-field-suffix{font-size:14px;line-height:22px;color:var(--dsw-alias-label-secondary)}
 .dsh-backup-number-input{width:64px}
 .dsh-backup-text-input{width:220px}
-.dsh-backup-preset-name{box-sizing:border-box;flex:1;min-width:0;width:auto;height:28px;font-size:13px}
+.dsh-backup-preset-name{box-sizing:border-box;flex:none;width:160px;height:28px;font-size:13px}
 .dsh-backup-preset-save{box-sizing:border-box;flex:none;height:28px;padding:0 12px;font-size:13px}
 .dsh-backup-select{position:relative;max-width:170px}
 .dsh-backup-select-trigger{box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;height:28px;padding:0 10px;border:0.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsh-backup-radius);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer}
@@ -57,28 +59,31 @@ export const BACKUP_CSS = `
 .dsh-backup-regex-label{margin-bottom:8px;font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary)}
 .dsh-backup-regex-control{display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:0}
 .dsh-backup-regex-input{box-sizing:border-box;width:100%;min-height:64px;max-height:120px;padding:8px 10px;border:0.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsh-backup-radius);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px;resize:vertical}
-.dsh-backup-preset-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0}
-.dsh-backup-preset-title{flex:1;min-width:0}
-.dsh-backup-preset-label{font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary)}
-.dsh-backup-preset-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
-.dsh-backup-preset-head-actions{display:flex;flex:none;align-items:center;gap:8px;min-width:0}
-.dsh-backup-preset-save-row{display:flex;align-items:center;gap:8px;min-width:0;padding:12px 0}
-.dsh-backup-disclosure-body{padding:0 0 16px}
+.dsh-backup-preset-save-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:12px 0}
+.dsh-backup-preset-label{flex:none;font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary)}
+.dsh-backup-preset-controls{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}
 .dsh-backup-sync-body > * + *{border-top:0.5px solid var(--dsw-alias-border-l1)}
 .dsh-backup-combined-body{display:flex;flex-direction:column}
-.dsh-backup-combined-body > * + *{border-top:0.5px solid var(--dsw-alias-border-l1)}
-.dsh-backup-combined-body > .dsh-backup-combined-section + *{border-top:0}
+.dsh-backup-combined-body > .dsh-backup-combined-section{border-top:0.5px solid var(--dsw-alias-border-l1)}
+.dsh-backup-combined-section{padding:0}
+.dsh-backup-preset-save-row + *{border-top:0.5px solid var(--dsw-alias-border-l1);padding-top:12px}
 .dsh-backup-disclosure-toggle{flex:none}
 .dsh-backup-muted{font-size:12px;color:var(--dsw-alias-label-secondary);padding:8px 0}
 .dsh-backup-export-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.dsh-backup-segmented{display:inline-flex;align-items:center;gap:2px;padding:2px;border:0.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsh-backup-radius);background:var(--dsw-alias-bg-layer-1)}
+.dsh-backup-segment{box-sizing:border-box;min-width:46px;height:24px;padding:0 8px;border:0;border-radius:calc(var(--dsh-backup-radius) - 2px);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:1;cursor:pointer}
+.dsh-backup-segment:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2)}
+.dsh-backup-segment.is-active{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.dsh-backup-segment:disabled{opacity:.5;cursor:not-allowed}
+.dsh-backup-version-text{font-size:13px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}
 .dsh-backup-tree-adjusted{margin-top:12px;padding-bottom:12px;border-bottom:0.5px solid var(--dsw-alias-border-l1)}
-.dsh-backup-tree-adjusted-row{display:flex;align-items:center;gap:8px;min-height:32px;font-size:12px}
+.dsh-backup-tree-adjusted-row{display:flex;align-items:center;gap:8px;min-height:26px;font-size:12px}
 .dsh-backup-tree-adjusted-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary)}
 .dsh-backup-tree-adjusted-state{flex:none;font-size:12px}
 .dsh-backup-tree-adjusted-state.is-in{color:var(--dsw-alias-state-success-primary,#10b981)}
 .dsh-backup-tree-adjusted-state.is-out{color:var(--dsw-alias-state-error-primary,#ef4444)}
-.dsh-backup-tree-revert{padding:2px 8px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsh-backup-radius);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:pointer}
-.dsh-backup-tree-revert:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.dsh-backup-tree-revert{padding:2px 8px;border:0;border-radius:var(--dsh-backup-radius);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:pointer}
+.dsh-backup-tree-revert:hover{background:var(--dsw-alias-bg-layer-2)}
 .dsh-backup-tree-revert:disabled{opacity:.45;cursor:not-allowed}
 
 /* 备份树按档案清单设计：标题区承载状态，内容区沿用 DSH 侧边栏的行密度与图标语义。 */

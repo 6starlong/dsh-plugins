@@ -10,4 +10,7 @@ export const Config = z.object({
   enabled: z.boolean().default(true).volatile().description('启用 DSH 备份模块'),
   repo: z.string().default('').volatile().description('GitHub 目标仓库'),
   intervalHours: z.number().step(1).min(1).max(168).default(6).volatile().description('同步间隔小时'),
+  autoBackupHours: z.number().step(1).min(0).max(168).default(0).volatile().description('自动备份间隔小时，0 为关闭'),
+  retention: z.number().step(1).min(3).max(30).default(7).volatile().description('保留备份份数'),
+  preset: z.string().default('').volatile().description('当前选中的命名预设，空串为内置默认规则'),
 })

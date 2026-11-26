@@ -4,7 +4,7 @@ window.__ModuleLoader__.load({
   factory: function (require) {
     var module = { exports: {} };
     var exports = module.exports;
-    const { useSyncExternalStore, useState, useEffect } = require("react")
+    const { useSyncExternalStore, useState, useEffect, useRef } = require("react")
     const { jsx, jsxs } = require("react/jsx-runtime")
     const { Input, Button, FileTypeIcon, classifyFileType } = require("@deepseek-ai/dsh-client-ui-primitives")
 
@@ -18,6 +18,9 @@ window.__ModuleLoader__.load({
     /** 默认值与 lib/config.js 的 schema 对齐。 */
     const DEFAULT_REPO = ''
     const DEFAULT_INTERVAL_HOURS = 6
+    const DEFAULT_AUTO_BACKUP_HOURS = 0
+    const DEFAULT_RETENTION = 7
+    const DEFAULT_PRESET = ''
 
     // ---- form.js ----
 
@@ -160,7 +163,7 @@ window.__ModuleLoader__.load({
         backupInterval: '同步间隔',
         backupIntervalDesc: '定时打包的间隔小时数',
         backupIntervalSuffix: '小时',
-        backupList: '备份清单',
+        backupList: '备份预设',
         backupListDesc: '选择纳入备份的文件与目录，支持预设与排除规则',
         backupRegex: '自定义排除规则',
         backupRegexPlaceholder: 'gitignore 风格，逗号或换行分隔',
@@ -171,22 +174,36 @@ window.__ModuleLoader__.load({
         backupEmpty: '暂无可备份内容',
         backupEmptyHint: '扫描完成后可在此勾选纳入项',
         backupPreset: '预设',
-        backupPresetDesc: '保存多份清单配置，随时切换',
         backupPresetName: '预设名称',
-        backupSavePreset: '保存预设',
+        backupSavePreset: '保存',
         backupInclude: '纳入',
         backupExclude: '排除',
         backupRevert: '撤销',
-        backupSelectPreset: '选择预设',
-        backupRestoreDefault: '恢复默认',
-        backupDeletePreset: '删除预设',
+        backupDefaultPreset: '默认',
+        backupDeletePreset: '删除',
+        backupFolder: '备份文件夹',
+        backupFolderDesc: '立即备份与命名预设的保存位置',
+        backupReveal: '显示',
         backupExport: '导出',
+        backupExportZip: '导出 ZIP',
+        backupImport: '导入',
+        backupImportZip: '导入 ZIP',
         backupExportDesc: '立即按清单生成 zip',
+        backupAutoBackup: '自动备份',
+        backupAutoBackupDesc: 'DSH 运行期间按间隔备份，关闭后不运行',
+        backupAutoOff: '关闭',
+        backupHour1: '1小时',
+        backupHour6: '6小时',
+        backupDay1: '1天',
+        backupWeek1: '1周',
+        backupRetention: '保留份数',
+        backupRetentionDesc: '超出份数的旧备份自动清理，最少 3 份',
+        backupVersion: '版本',
+        backupVersionsNone: '暂无',
+        backupVersionsCount: '份备份',
+        backupVersionsLatest: '最新',
+        backupBackupNow: '立即备份',
         backupExporting: '导出中…',
-        backupDownload: '下载',
-        backupResult: '已打包',
-        backupFiles: '个文件',
-        backupExcludedCount: '项排除',
         backupError: '导出失败',
         backupConfigure: '配置',
         backupEdit: '编辑',
@@ -220,9 +237,11 @@ window.__ModuleLoader__.load({
     .dsh-plugins-btn-danger{background:transparent;border-color:rgba(217,72,65,.55);color:#e06c66}
     .dsh-plugins-btn-danger:hover:not(:disabled){background:rgba(217,72,65,.14);border-color:rgba(217,72,65,.85)}
     .dsh-plugins-btn-danger:active:not(:disabled){transform:translateY(1px)}
+    .dsh-backup-form button.dsh-backup-danger-text{color:#e06c66}
+    .dsh-backup-form button.dsh-backup-danger-text:hover:not(:disabled){color:#f87171;background:rgba(217,72,65,.14)}
     /* 统一设置清单：左侧标题与描述，右侧表单控件；行间用淡顶边，最后一行无线。 */
     .dsh-backup-form{--dsh-backup-radius:8px}
-    .dsh-backup-form button:not(.dsh-backup-tree-action):not(.dsh-backup-select-option),
+    .dsh-backup-form button:not(.dsh-backup-tree-action):not(.dsh-backup-select-option):not(.dsh-backup-segment):not(.dsh-backup-tree-revert),
     .dsh-backup-form input:not([type=checkbox]){box-sizing:border-box;height:28px;min-height:28px;padding:0 10px;border-radius:var(--dsh-backup-radius)!important;font:inherit;font-size:13px}
     .dsh-backup-form textarea{border-radius:var(--dsh-backup-radius)!important;font-size:13px}
     .dsh-backup-number-input,.dsh-backup-text-input,.dsh-backup-preset-name{border-radius:var(--dsh-backup-radius)!important}
@@ -239,7 +258,7 @@ window.__ModuleLoader__.load({
     .dsh-backup-field-suffix{font-size:14px;line-height:22px;color:var(--dsw-alias-label-secondary)}
     .dsh-backup-number-input{width:64px}
     .dsh-backup-text-input{width:220px}
-    .dsh-backup-preset-name{box-sizing:border-box;flex:1;min-width:0;width:auto;height:28px;font-size:13px}
+    .dsh-backup-preset-name{box-sizing:border-box;flex:none;width:160px;height:28px;font-size:13px}
     .dsh-backup-preset-save{box-sizing:border-box;flex:none;height:28px;padding:0 12px;font-size:13px}
     .dsh-backup-select{position:relative;max-width:170px}
     .dsh-backup-select-trigger{box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;height:28px;padding:0 10px;border:0.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsh-backup-radius);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;cursor:pointer}
@@ -254,28 +273,31 @@ window.__ModuleLoader__.load({
     .dsh-backup-regex-label{margin-bottom:8px;font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary)}
     .dsh-backup-regex-control{display:flex;flex-direction:column;align-items:flex-end;gap:8px;min-width:0}
     .dsh-backup-regex-input{box-sizing:border-box;width:100%;min-height:64px;max-height:120px;padding:8px 10px;border:0.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsh-backup-radius);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;line-height:20px;resize:vertical}
-    .dsh-backup-preset-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0}
-    .dsh-backup-preset-title{flex:1;min-width:0}
-    .dsh-backup-preset-label{font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary)}
-    .dsh-backup-preset-desc{font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
-    .dsh-backup-preset-head-actions{display:flex;flex:none;align-items:center;gap:8px;min-width:0}
-    .dsh-backup-preset-save-row{display:flex;align-items:center;gap:8px;min-width:0;padding:12px 0}
-    .dsh-backup-disclosure-body{padding:0 0 16px}
+    .dsh-backup-preset-save-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;padding:12px 0}
+    .dsh-backup-preset-label{flex:none;font-size:14px;line-height:22px;color:var(--dsw-alias-label-primary)}
+    .dsh-backup-preset-controls{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}
     .dsh-backup-sync-body > * + *{border-top:0.5px solid var(--dsw-alias-border-l1)}
     .dsh-backup-combined-body{display:flex;flex-direction:column}
-    .dsh-backup-combined-body > * + *{border-top:0.5px solid var(--dsw-alias-border-l1)}
-    .dsh-backup-combined-body > .dsh-backup-combined-section + *{border-top:0}
+    .dsh-backup-combined-body > .dsh-backup-combined-section{border-top:0.5px solid var(--dsw-alias-border-l1)}
+    .dsh-backup-combined-section{padding:0}
+    .dsh-backup-preset-save-row + *{border-top:0.5px solid var(--dsw-alias-border-l1);padding-top:12px}
     .dsh-backup-disclosure-toggle{flex:none}
     .dsh-backup-muted{font-size:12px;color:var(--dsw-alias-label-secondary);padding:8px 0}
     .dsh-backup-export-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+    .dsh-backup-segmented{display:inline-flex;align-items:center;gap:2px;padding:2px;border:0.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsh-backup-radius);background:var(--dsw-alias-bg-layer-1)}
+    .dsh-backup-segment{box-sizing:border-box;min-width:46px;height:24px;padding:0 8px;border:0;border-radius:calc(var(--dsh-backup-radius) - 2px);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:1;cursor:pointer}
+    .dsh-backup-segment:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2)}
+    .dsh-backup-segment.is-active{background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font-weight:500;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+    .dsh-backup-segment:disabled{opacity:.5;cursor:not-allowed}
+    .dsh-backup-version-text{font-size:13px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}
     .dsh-backup-tree-adjusted{margin-top:12px;padding-bottom:12px;border-bottom:0.5px solid var(--dsw-alias-border-l1)}
-    .dsh-backup-tree-adjusted-row{display:flex;align-items:center;gap:8px;min-height:32px;font-size:12px}
+    .dsh-backup-tree-adjusted-row{display:flex;align-items:center;gap:8px;min-height:26px;font-size:12px}
     .dsh-backup-tree-adjusted-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary)}
     .dsh-backup-tree-adjusted-state{flex:none;font-size:12px}
     .dsh-backup-tree-adjusted-state.is-in{color:var(--dsw-alias-state-success-primary,#10b981)}
     .dsh-backup-tree-adjusted-state.is-out{color:var(--dsw-alias-state-error-primary,#ef4444)}
-    .dsh-backup-tree-revert{padding:2px 8px;border:0.5px solid var(--dsw-alias-border-l2);border-radius:var(--dsh-backup-radius);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:pointer}
-    .dsh-backup-tree-revert:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+    .dsh-backup-tree-revert{padding:2px 8px;border:0;border-radius:var(--dsh-backup-radius);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:18px;cursor:pointer}
+    .dsh-backup-tree-revert:hover{background:var(--dsw-alias-bg-layer-2)}
     .dsh-backup-tree-revert:disabled{opacity:.45;cursor:not-allowed}
 
     /* 备份树按档案清单设计：标题区承载状态，内容区沿用 DSH 侧边栏的行密度与图标语义。 */
@@ -419,7 +441,7 @@ window.__ModuleLoader__.load({
 
 
     /** 折叠行：左侧固定标题与描述，右侧配置区按钮才触发展开。 */
-    function DisclosureRow({ label, description, open, onToggle, actionLabel, children }) {
+    function DisclosureRow({ label, description, open, onToggle, actionLabel, control, children }) {
       return jsxs('div', {
         className: 'dsh-backup-disclosure',
         children: [
@@ -436,6 +458,7 @@ window.__ModuleLoader__.load({
               jsxs('div', {
                 className: 'dsh-backup-setting-control',
                 children: [
+                  control ?? null,
                   jsx(Button, {
                     variant: 'ghost', size: 'sm',
                     'aria-expanded': !!open,
@@ -455,10 +478,11 @@ window.__ModuleLoader__.load({
     // ---- api.js ----
     /** 本地备份端点与同源头：与服务端包 packages/dsh-backup/lib/index.js 对齐。 */
     const BACKUP_EXPORT_ROUTE = '/api/starlong/dsh-backup/export'
-    const BACKUP_DOWNLOAD_ROUTE = '/api/starlong/dsh-backup/download'
     const BACKUP_TOKEN_HEADER = 'x-starlong-backup'
     const BACKUP_TREE_ROUTE = '/api/starlong/dsh-backup/tree'
     const BACKUP_PRESET_ROUTE = '/api/starlong/dsh-backup/preset'
+    const BACKUP_REVEAL_ROUTE = '/api/starlong/dsh-backup/reveal'
+    const BACKUP_VERSIONS_ROUTE = '/api/starlong/dsh-backup/versions'
 
     /** 把根绝对路径端点挂到页面 base 下，兼容带路径前缀的反向代理。 */
     function resolveApiUrl(path) {
@@ -476,7 +500,28 @@ window.__ModuleLoader__.load({
       } catch { return path }
     }
 
+    // ---- components/SegmentedControl.jsx ----
+
+    /** 分段单选：选项为 [{ value, label }]，值相等的那段高亮。 */
+    function SegmentedControl({ options, value, onChange, disabled, label }) {
+      return jsx('div', {
+        className: 'dsh-backup-segmented',
+        role: 'group',
+        'aria-label': label,
+        children: options.map(option => jsx('button', {
+          key: String(option.value),
+          type: 'button',
+          className: 'dsh-backup-segment' + (option.value === value ? ' is-active' : ''),
+          'aria-pressed': option.value === value,
+          disabled: !!disabled,
+          onClick: () => onChange?.(option.value),
+          children: option.label,
+        }, 'seg-' + option.value)),
+      })
+    }
+
     // ---- BackupPanel.jsx ----
+
 
 
 
@@ -494,6 +539,18 @@ window.__ModuleLoader__.load({
       let i = 0
       while (value >= 1024 && i < units.length - 1) { value /= 1024; i++ }
       return value.toFixed(1) + ' ' + units[i]
+    }
+
+    /** 最近备份时间：当天只显示时分，跨天显示完整日期时间。 */
+    function formatBackupTime(iso) {
+      if (!iso) return ''
+      const date = new Date(iso)
+      if (Number.isNaN(date.getTime())) return ''
+      const pad = n => String(n).padStart(2, '0')
+      const now = new Date()
+      const sameDay = date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()
+      const hm = pad(date.getHours()) + ':' + pad(date.getMinutes())
+      return sameDay ? hm : date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + ' ' + hm
     }
 
     /** 把内部规则名翻成人话；完整规则放 title 供排查。 */
@@ -524,9 +581,12 @@ window.__ModuleLoader__.load({
       const [presetDraft, setPresetDraft] = useState('')
       const [loading, setLoading] = useState(false)
       const [exporting, setExporting] = useState(false)
-      const [result, setResult] = useState(null)
+      const [backingUp, setBackingUp] = useState(false)
+      const [versions, setVersions] = useState({ count: 0, latest: null })
       const [error, setError] = useState(null)
       const [sectionOpen, setSectionOpen] = useState({})
+      const treeBoxRef = useRef(null)
+      const [treeHeight, setTreeHeight] = useState(null)
       const toggleSection = key => setSectionOpen(prev => ({ ...prev, [key]: !prev[key] }))
       const iconKindForRel = rel => {
         for (const nodes of Object.values(treeData)) {
@@ -539,6 +599,8 @@ window.__ModuleLoader__.load({
       useEffect(() => {
         let cancelled = false
         const boot = async () => {
+          // 选中预设时交给下面的回读 effect 加载，避免空规则树请求覆盖预设树
+          if (state.preset) return
           setLoading(true)
           try {
             const res = await fetch(resolveApiUrl(BACKUP_TREE_ROUTE), {
@@ -569,12 +631,28 @@ window.__ModuleLoader__.load({
         if (!res.ok || data?.ok !== true) throw new Error(data?.error || String(res.status))
         return data
       }
+      const loadVersions = async () => {
+        try {
+          const data = await request(BACKUP_VERSIONS_ROUTE, {})
+          setVersions({ count: data.count || 0, latest: data.latest || null })
+        } catch { /* 版本概览失败不影响设置页 */ }
+      }
+      useEffect(() => { void loadVersions() }, [])
+      useEffect(() => {
+        const active = state.preset || ''
+        if (active && active !== presetName) {
+          setPresetName(active)
+          void loadPreset(active)
+        }
+      }, [state.preset])
+
       const loadChildren = async (path, ov, rg) => {
         const data = await request(BACKUP_TREE_ROUTE, { path, overrides: ov, regex: rg })
         setTreeData(prev => ({ ...prev, [path]: data.nodes || [] }))
         setPresets(data.presets || [])
       }
       const reloadAll = async (ov, rg) => {
+        setTreeHeight(treeBoxRef.current?.offsetHeight ?? null)
         setLoading(true)
         setError(null)
         try {
@@ -590,7 +668,7 @@ window.__ModuleLoader__.load({
           setSummary(data.stats || null)
           setPresets(data.presets || [])
         } catch (e) { setError(e?.message || '') }
-        finally { setLoading(false) }
+        finally { setLoading(false); setTreeHeight(null) }
       }
       const toggleNode = async node => {
         const next = { ...overrides }
@@ -626,12 +704,14 @@ window.__ModuleLoader__.load({
           const data = await request(BACKUP_PRESET_ROUTE, { action: 'save', name, overrides, regex: regexDraft })
           setPresets(data.presets || [])
           setPresetName(name)
+          props.setBackupPreset?.(name)
         } catch (e) { setError(e?.message || '') }
       }
       const loadPreset = async name => {
         const target = name ?? presetName
         if (!target) {
           setOverrides({}); setRegex(''); setRegexDraft(''); setExpanded({})
+          props.setBackupPreset?.('')
           await reloadAll({}, '')
           return
         }
@@ -640,6 +720,7 @@ window.__ModuleLoader__.load({
           const ov = data.overrides || {}
           const rg = data.regex || ''
           setOverrides(ov); setRegex(rg); setRegexDraft(rg); setExpanded({})
+          props.setBackupPreset?.(target)
           await reloadAll(ov, rg)
         } catch (e) { setError(e?.message || '') }
       }
@@ -655,18 +736,38 @@ window.__ModuleLoader__.load({
           const data = await request(BACKUP_PRESET_ROUTE, { action: 'delete', name: presetName })
           setPresets(data.presets || [])
           setPresetName('')
+          props.setBackupPreset?.('')
         } catch (e) { setError(e?.message || '') }
+      }
+      const revealFolder = async () => {
+        try { await request(BACKUP_REVEAL_ROUTE, {}) } catch (e) { setError(e?.message || '') }
+      }
+      const pickDirectory = async () => {
+        const picker = globalThis.__DSH_DIRECTORY_PICKER__
+        if (picker && typeof picker.pick === 'function') return picker.pick()
+        throw new Error('目录选择器不可用')
       }
       const runExport = async () => {
         if (exporting) return
+        let dir
+        try { dir = await pickDirectory() } catch (e) { setError(e?.message || '目录选择器不可用'); return }
+        if (!dir) return
         setExporting(true)
         setError(null)
-        setResult(null)
         try {
-          const data = await request(BACKUP_EXPORT_ROUTE, { overrides, regex })
-          setResult(data)
+          await request(BACKUP_EXPORT_ROUTE, { overrides, regex, preset: presetName || undefined, dir })
         } catch (e) { setError(e?.message || '') }
         finally { setExporting(false) }
+      }
+      const runBackupNow = async () => {
+        if (backingUp) return
+        setBackingUp(true)
+        setError(null)
+        try {
+          await request(BACKUP_EXPORT_ROUTE, { overrides, regex, preset: presetName || undefined })
+          await loadVersions()
+        } catch (e) { setError(e?.message || '') }
+        finally { setBackingUp(false) }
       }
       const renderNode = (node, depth) => jsxs('div', {
         key: node.rel,
@@ -725,6 +826,38 @@ window.__ModuleLoader__.load({
           node.kind === 'directory' && expanded[node.rel] ? renderTree(treeData[node.rel], depth + 1) : null,
         ],
       }, 'branch'))
+      const presetControl = jsxs('div', {
+        className: 'dsh-backup-select',
+        onBlur: ev => { if (!ev.currentTarget.contains(ev.relatedTarget)) setPresetOpen(false) },
+        children: [
+          jsxs('button', {
+            type: 'button', className: 'dsh-backup-select-trigger',
+            'aria-haspopup': 'listbox', 'aria-expanded': presetOpen,
+            onClick: () => setPresetOpen(v => !v),
+            children: [
+              jsx('span', { children: presetName || t('backupDefaultPreset') }, 'label'),
+              jsx('span', { className: 'dsh-backup-select-caret', children: '▾' }, 'caret'),
+            ],
+          }, 'trigger'),
+          presetOpen ? jsx('div', {
+            className: 'dsh-backup-select-menu', role: 'listbox',
+            children: [
+              jsx('button', {
+                key: '__default__', type: 'button', role: 'option', 'aria-selected': !presetName,
+                className: 'dsh-backup-select-option' + (!presetName ? ' is-selected' : ''),
+                onClick: () => { setPresetOpen(false); setPresetName(''); void loadPreset('') },
+                children: t('backupDefaultPreset'),
+              }, 'opt-default'),
+              ...presets.map(n => jsx('button', {
+                key: n, type: 'button', role: 'option', 'aria-selected': n === presetName,
+                className: 'dsh-backup-select-option' + (n === presetName ? ' is-selected' : ''),
+                onClick: () => { setPresetOpen(false); setPresetName(n); void loadPreset(n) },
+                children: n,
+              }, 'opt-' + n)),
+            ],
+          }, 'menu') : null,
+        ],
+      }, 'preset-select-control')
       return jsxs('div', {
         className: 'dsh-backup-form',
         children: [
@@ -757,12 +890,31 @@ window.__ModuleLoader__.load({
             open: !!sectionOpen.tree,
             onToggle: () => toggleSection('tree'),
             actionLabel: sectionOpen.tree ? t('backupCollapse') : t('backupConfigure'),
+            control: presetControl,
             children: jsxs('div', {
               className: 'dsh-backup-combined-body',
               children: [
                 jsxs('div', {
                   className: 'dsh-backup-combined-section',
                   children: [
+                jsxs('div', {
+                  className: 'dsh-backup-preset-save-row',
+                  children: [
+                    jsx('span', { className: 'dsh-backup-preset-label', children: t('backupPreset') }, 'preset-label'),
+                    jsxs('div', {
+                      className: 'dsh-backup-preset-controls',
+                      children: [
+                        jsx(Input, {
+                          type: 'text', value: presetDraft, onChange: e => setPresetDraft(e.target.value),
+                          placeholder: t('backupPresetName'), 'aria-label': t('backupPresetName'),
+                          className: 'dsh-backup-preset-name',
+                        }, 'preset-draft'),
+                        jsx(Button, { variant: 'outline', size: 'sm', className: 'dsh-backup-preset-save', onClick: savePreset, children: t('backupSavePreset') }, 'preset-save'),
+                        presetName ? jsx(Button, { variant: 'ghost', size: 'sm', className: 'dsh-backup-danger-text', onClick: deletePreset, children: t('backupDeletePreset') }, 'preset-delete') : null,
+                      ],
+                    }, 'preset-controls'),
+                  ],
+                }, 'preset-save-row'),
                     jsxs('div', {
                       className: 'dsh-backup-tree-head',
                       children: [
@@ -774,11 +926,6 @@ window.__ModuleLoader__.load({
                               onClick: () => reloadAll(overrides, regex),
                               children: loading ? t('backupRefreshing') : t('backupRefresh'),
                             }, 'refresh'),
-                            jsx(Button, {
-                              variant: 'ghost', size: 'sm',
-                              onClick: () => { setPresetOpen(false); setPresetName(''); setPresetDraft(''); void loadPreset('') },
-                              children: t('backupRestoreDefault'),
-                            }, 'restore-default'),
                           ],
                         }, 'tree-actions'),
                         jsx('span', { className: 'dsh-backup-tree-estimate', children: summary ? t('backupEstimate') + ' ' + formatBytes(summary.includeBytes) : t('backupEstimate') + ' …' }, 'estimate'),
@@ -786,6 +933,8 @@ window.__ModuleLoader__.load({
                     }, 'tree-head'),
                     jsx('div', {
                       className: 'dsh-backup-tree-box',
+                      ref: treeBoxRef,
+                      style: treeHeight !== null ? { height: treeHeight } : undefined,
                       children: loading
                         ? jsxs('div', { className: 'dsh-backup-tree-skeleton', 'aria-hidden': true, children: [70, 54, 76, 48, 62].map((w, i) => jsxs('div', { className: 'dsh-backup-tree-skeleton-row', children: [jsx('span', { className: 'dsh-backup-tree-skeleton-icon' }, 'icon'), jsx('span', { className: 'dsh-backup-tree-skeleton-line', style: { width: w + '%' } }, 'line')] }, 'sk-' + i)) }, 'skeleton')
                         : (treeData[''] || []).length
@@ -842,59 +991,6 @@ window.__ModuleLoader__.load({
                     }, 'regex-control'),
                   ],
                 }, 'regex-row'),
-                jsxs('div', {
-                  className: 'dsh-backup-preset-head',
-                  children: [
-                    jsxs('div', {
-                      className: 'dsh-backup-preset-title',
-                      children: [
-                        jsx('div', { className: 'dsh-backup-preset-label', children: t('backupPreset') }, 'preset-label'),
-                        jsx('div', { className: 'dsh-backup-preset-desc', children: t('backupPresetDesc') }, 'preset-desc'),
-                      ],
-                    }, 'preset-title'),
-                    jsxs('div', {
-                      className: 'dsh-backup-preset-head-actions',
-                      children: [
-                        jsxs('div', {
-                          className: 'dsh-backup-select',
-                          onBlur: e => { if (!e.currentTarget.contains(e.relatedTarget)) setPresetOpen(false) },
-                          children: [
-                            jsxs('button', {
-                              type: 'button', className: 'dsh-backup-select-trigger',
-                              'aria-haspopup': 'listbox', 'aria-expanded': presetOpen, disabled: !presets.length,
-                              onClick: () => setPresetOpen(v => !v),
-                              children: [
-                                jsx('span', { children: presetName || t('backupSelectPreset') }, 'label'),
-                                jsx('span', { className: 'dsh-backup-select-caret', children: '▾' }, 'caret'),
-                              ],
-                            }, 'trigger'),
-                            presetOpen ? jsx('div', {
-                              className: 'dsh-backup-select-menu', role: 'listbox',
-                              children: presets.map(n => jsx('button', {
-                                key: n, type: 'button', role: 'option', 'aria-selected': n === presetName,
-                                className: 'dsh-backup-select-option' + (n === presetName ? ' is-selected' : ''),
-                                onClick: () => { setPresetOpen(false); setPresetName(n); void loadPreset(n) },
-                                children: n,
-                              }, 'opt-' + n)),
-                            }, 'menu') : null,
-                          ],
-                        }, 'preset-select'),
-                        presetName ? jsx(Button, { variant: 'ghost', size: 'sm', onClick: deletePreset, children: t('backupDeletePreset') }, 'preset-delete') : null,
-                      ],
-                    }, 'preset-head-actions'),
-                  ],
-                }, 'preset-head'),
-                jsxs('div', {
-                  className: 'dsh-backup-preset-save-row',
-                  children: [
-                    jsx(Input, {
-                      type: 'text', value: presetDraft, onChange: e => setPresetDraft(e.target.value),
-                      placeholder: t('backupPresetName'), 'aria-label': t('backupPresetName'),
-                      className: 'dsh-backup-preset-name',
-                    }, 'preset-draft'),
-                    jsx(Button, { variant: 'outline', size: 'sm', className: 'dsh-backup-preset-save', onClick: savePreset, children: t('backupSavePreset') }, 'preset-save'),
-                  ],
-                }, 'preset-save-row'),
               ],
             }, 'combined-body'),
           }, 'tree-disclosure'),
@@ -905,25 +1001,71 @@ window.__ModuleLoader__.load({
               className: 'dsh-backup-export-actions',
               children: [
                 jsx(Button, {
-                  variant: 'primary', size: 'sm',
+                  variant: 'ghost', size: 'sm',
                   disabled: exporting || !state.writable,
                   onClick: runExport,
-                  children: exporting ? t('backupExporting') : t('backupExport'),
+                  children: exporting ? t('backupExporting') : t('backupExportZip'),
                 }, 'export'),
-                result ? jsx('a', {
-                  className: 'dsh-plugins-btn',
-                  href: resolveApiUrl(BACKUP_DOWNLOAD_ROUTE + '?name=' + encodeURIComponent(result.name)),
-                  download: result.name,
-                  children: t('backupDownload'),
-                }, 'download') : null,
               ],
             }, 'actions'),
           }, 'export-row'),
-          result ? jsx('p', {
-            className: 'dsh-backup-form-note',
-            style: STYLE.hint,
-            children: t('backupResult') + '：' + result.name + ' · ' + result.includeFiles + t('backupFiles') + ' · ' + result.excludeItems + t('backupExcludedCount'),
-          }, 'result') : null,
+          jsx(SettingRow, {
+            label: t('backupImport'),
+            control: jsx(Button, {
+              variant: 'ghost', size: 'sm',
+              onClick: () => {},
+              children: t('backupImportZip'),
+            }, 'import'),
+          }, 'import-row'),
+          jsx(SettingRow, {
+            label: t('backupAutoBackup'),
+            description: t('backupAutoBackupDesc'),
+            control: jsx(SegmentedControl, {
+              label: t('backupAutoBackup'),
+              options: [
+                { value: 0, label: t('backupAutoOff') },
+                { value: 1, label: t('backupHour1') },
+                { value: 6, label: t('backupHour6') },
+                { value: 24, label: t('backupDay1') },
+                { value: 168, label: t('backupWeek1') },
+              ],
+              value: Number(state.autoBackupHours) || 0,
+              disabled: !state.writable,
+              onChange: props.setAutoBackup,
+            }, 'auto-segment'),
+          }, 'auto-row'),
+          jsx(SettingRow, {
+            label: t('backupRetention'),
+            description: t('backupRetentionDesc'),
+            control: jsx(SegmentedControl, {
+              label: t('backupRetention'),
+              options: [3, 7, 14, 30].map(n => ({ value: n, label: String(n) })),
+              value: Number(state.retention) || 7,
+              disabled: !state.writable,
+              onChange: props.setRetention,
+            }, 'retention-segment'),
+          }, 'retention-row'),
+          jsx(SettingRow, {
+            label: t('backupFolder'),
+            description: t('backupFolderDesc'),
+            control: jsx(Button, {
+              variant: 'ghost', size: 'sm',
+              onClick: revealFolder,
+              children: t('backupReveal'),
+            }, 'reveal'),
+          }, 'folder-row'),
+          jsx(SettingRow, {
+            label: t('backupVersion'),
+            description: versions.count > 0
+              ? versions.count + t('backupVersionsCount') + ' · ' + t('backupVersionsLatest') + formatBackupTime(versions.latest)
+              : t('backupVersionsNone'),
+            control: jsx(Button, {
+              variant: 'ghost', size: 'sm',
+              disabled: backingUp || !state.writable,
+              onClick: runBackupNow,
+              children: backingUp ? t('backupExporting') : t('backupBackupNow'),
+            }, 'backup-now'),
+          }, 'version-row'),
           error ? jsx('p', { className: 'dsh-backup-form-note', role: 'alert', style: { ...STYLE.hint, color: '#f87171' }, children: t('backupError') + '：' + error }, 'error') : null,
         ],
       })
@@ -943,12 +1085,18 @@ window.__ModuleLoader__.load({
           enabled: { type: 'boolean', default: true },
           repo: { type: 'string', default: DEFAULT_REPO },
           intervalHours: { type: 'number', default: DEFAULT_INTERVAL_HOURS },
+          autoBackupHours: { type: 'number', default: DEFAULT_AUTO_BACKUP_HOURS },
+          retention: { type: 'number', default: DEFAULT_RETENTION },
+          preset: { type: 'string', default: DEFAULT_PRESET },
         })
       }
       inject() {
         return this.card.inject('backupCard', {
           setBackupRepo: 'repo',
           setBackupInterval: 'intervalHours',
+          setAutoBackup: 'autoBackupHours',
+          setRetention: 'retention',
+          setBackupPreset: 'preset',
         })
       }
       dispose() {

@@ -13,8 +13,11 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 | 树勾选 | 设置页逐层展开目录并显示物理体积，勾选决定纳入，半勾表示子项有排除，空目录不列出也不进包 |
 | 正则覆盖 | gitignore 风格正则按相对路径排除，点「应用规则」才生效，未应用有提示 |
 | 命名预设 | 勾选与正则一起存为预设，切换即载入；树下方汇总手动调整项，可逐条撤销 |
-| 本地导出 | 导出 zip 到 `<DSH_HOME>/backups/starlong/`，包内 `_manifest.json` 记录排除清单与统计 |
-| 访问控制 | 四个路由只认本机回环，导出/树/预设另校验约定头与同源；预设名走白名单，路径拒绝越界 |
+| 本地导出 | 「导出」调系统目录选择器，选完把 zip 写进该目录；「立即备份」固定写到 `<DSH_HOME>/backups/`，保留份数只作用于后者。包内 `_manifest.json` 记录排除清单与统计，文件名形如 `dsh-backup_YYYY-MM-DD_HH-MM-SS.zip` |
+| 定时备份 | 按上一次备份时刻判断，DSH 运行期间到点自动导出；启动时已超时立即补一份，未超时不补 |
+| 份数轮换 | 每次导出后按保留份数清理最旧的 zip，最少 3 份 |
+| 版本概览 | 只读列出备份份数与最近备份时间，显示为「x 份备份 · 最新 HH:MM」 |
+| 访问控制 | 六个路由只认本机回环，除下载外均校验约定头与同源；预设名与下载文件名走白名单，路径拒绝越界 |
 
 ## 判定顺序
 
@@ -31,10 +34,10 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 
 | 文件 | 职责 |
 |---|---|
-| `lib/index.js` | 装配模块，注册 export/download/tree/preset 四个本地路由 |
+| `lib/index.js` | 装配模块，注册 export/download/tree/preset/reveal/versions 六个本地路由，含自动备份调度 |
 | `lib/rules.js` | 默认词表、匹配器、扫描树、目录树描述与统计 |
 | `lib/zip.js` | 零依赖 ZIP writer（store 模式，单包上限 4 GiB） |
-| `lib/config.js` | 配置 schema：enabled / repo / intervalHours |
+| `lib/config.js` | 配置 schema：enabled / repo / intervalHours / autoBackupHours / retention / preset |
 | `lib/schema.js` | schemastery 解析与找不到时的空壳兜底 |
 
 ## 接口
@@ -43,22 +46,25 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 |---|---|
 | `/api/starlong/dsh-backup/tree` | 列出目录子项，按需展开，返回纳入体积与排除原因 |
 | `/api/starlong/dsh-backup/preset` | list/save/load/delete 命名预设 |
-| `/api/starlong/dsh-backup/export` | 按 overrides+regex 扫描并写 zip |
+| `/api/starlong/dsh-backup/export` | 按 overrides+regex 扫描并写 zip；带 `dir` 时写到该目录且不做保留清理 |
 | `/api/starlong/dsh-backup/download` | 下载已导出的 zip |
+| `/api/starlong/dsh-backup/reveal` | 调起系统文件管理器打开 backups 目录 |
+| `/api/starlong/dsh-backup/versions` | 只读返回备份份数与最近备份时间 |
 
 ## 配置
 
-设置页「备份同步」卡片只有总开关；`repo` 与 `intervalHours` 预留给 GitHub 同步步骤。
+设置页「备份同步」卡片的总开关控制整个模块；`repo` 与 `intervalHours` 预留给 GitHub 同步步骤。
+`autoBackupHours` 为自动备份间隔（0/1/6/24/168 小时，0 关闭），`retention` 为保留份数（3/7/14/30），`preset` 记录当前选中的命名预设（空串为内置默认规则），手动导出与自动备份都按它走；选择入口在「备份清单」行右侧，打开面板自动回读。三者均只在本机 DSH 运行期间生效，关闭期间不补跑。
 
 ## 待办
 
 - [ ] GitHub 指定仓库目录定时同步
 - [ ] 密钥加密（配置文件入包前加密，还原时解密）
 - [ ] 备份完整性校验（SHA256 清单，下载后先验再还原）
-- [ ] 本地备份轮换与保留份数
+- [x] 本地备份轮换与保留份数
 - [ ] 一键还原备份包
 - [ ] 还原预检与 dry-run（列出将覆盖的路径）
 - [ ] 还原前快照与失败回滚
 - [ ] 还原冲突策略（合并 / 覆盖）
-- [ ] 定时任务调度
+- [x] 定时任务调度
 - [ ] 完整使用文档

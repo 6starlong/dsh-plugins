@@ -2,7 +2,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 
 /** 折叠行：左侧固定标题与描述，右侧配置区按钮才触发展开。 */
-export function DisclosureRow({ label, description, open, onToggle, actionLabel, children }) {
+export function DisclosureRow({ label, description, open, onToggle, actionLabel, control, children }) {
   return jsxs('div', {
     className: 'dsh-backup-disclosure',
     children: [
@@ -19,6 +19,7 @@ export function DisclosureRow({ label, description, open, onToggle, actionLabel,
           jsxs('div', {
             className: 'dsh-backup-setting-control',
             children: [
+              control ?? null,
               jsx(Button, {
                 variant: 'ghost', size: 'sm',
                 'aria-expanded': !!open,

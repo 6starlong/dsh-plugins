@@ -280,7 +280,7 @@ describe('导出路由', () => {
       apply(ctx, config)
       const exportPath = '/api/starlong/dsh-backup/export'
       const downloadPath = '/api/starlong/dsh-backup/download'
-      expect(Object.keys(handlers).sort()).toEqual([downloadPath, exportPath, '/api/starlong/dsh-backup/preset', '/api/starlong/dsh-backup/tree'].sort())
+      expect(Object.keys(handlers).sort()).toEqual([downloadPath, exportPath, '/api/starlong/dsh-backup/preset', '/api/starlong/dsh-backup/tree', '/api/starlong/dsh-backup/reveal', '/api/starlong/dsh-backup/versions'].sort())
       const baseReq = {
         headers: { host: '127.0.0.1:51234', 'sec-fetch-site': 'same-origin' },
         socket: { remoteAddress: '127.0.0.1' },
@@ -301,10 +301,10 @@ describe('导出路由', () => {
       await handlers[exportPath]({ ...baseReq, headers: { ...baseReq.headers, 'x-starlong-backup': '1' }, url: exportPath }, { writeHead: s => { officialStatus = s }, end() {} })
       expect(officialStatus).toBe(403)
       ctx.connection.requestRejection = () => undefined
-      const zipPath = join(root, 'backups', 'starlong', payload.name)
+      const zipPath = join(root, 'backups', payload.name)
       expect(existsSync(zipPath)).toBe(true)
       expect(existsSync(zipPath + '.json')).toBe(false)
-      expect(/^dsh-backup-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.zip$/.test(payload.name)).toBe(true)
+      expect(/^dsh-backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip$/.test(payload.name)).toBe(true)
       let zipBuf
       await handlers[downloadPath](
         { ...baseReq, url: downloadPath + '?name=' + encodeURIComponent(payload.name) },

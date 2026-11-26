@@ -2,7 +2,7 @@ import { DirectCardController } from './form.js'
 import { MESSAGES } from './messages.js'
 import { BackupPanel } from './BackupPanel.jsx'
 import { BACKUP_CSS } from './styles.js'
-import { CONFIG_NS, NS, DEFAULT_REPO, DEFAULT_INTERVAL_HOURS } from './constants.js'
+import { CONFIG_NS, NS, DEFAULT_REPO, DEFAULT_INTERVAL_HOURS, DEFAULT_AUTO_BACKUP_HOURS, DEFAULT_RETENTION, DEFAULT_PRESET } from './constants.js'
 
 /** 备份配置直写控制器：字段与动作都留在备份包内部。 */
 export class BackupCardController {
@@ -12,12 +12,18 @@ export class BackupCardController {
       enabled: { type: 'boolean', default: true },
       repo: { type: 'string', default: DEFAULT_REPO },
       intervalHours: { type: 'number', default: DEFAULT_INTERVAL_HOURS },
+      autoBackupHours: { type: 'number', default: DEFAULT_AUTO_BACKUP_HOURS },
+      retention: { type: 'number', default: DEFAULT_RETENTION },
+      preset: { type: 'string', default: DEFAULT_PRESET },
     })
   }
   inject() {
     return this.card.inject('backupCard', {
       setBackupRepo: 'repo',
       setBackupInterval: 'intervalHours',
+      setAutoBackup: 'autoBackupHours',
+      setRetention: 'retention',
+      setBackupPreset: 'preset',
     })
   }
   dispose() {

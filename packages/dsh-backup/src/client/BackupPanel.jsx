@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 import { Button, Input, FileTypeIcon, classifyFileType } from '@deepseek-ai/dsh-client-ui-primitives'
 import { STYLE } from './styles.js'
 import { DaysInput, TextInput } from './fields.jsx'
 import { SettingRow } from './components/SettingRow.jsx'
 import { DisclosureRow } from './components/DisclosureRow.jsx'
-import { BACKUP_EXPORT_ROUTE, BACKUP_DOWNLOAD_ROUTE, BACKUP_TOKEN_HEADER, BACKUP_TREE_ROUTE, BACKUP_PRESET_ROUTE, resolveApiUrl } from './api.js'
+import { BACKUP_EXPORT_ROUTE, BACKUP_TOKEN_HEADER, BACKUP_TREE_ROUTE, BACKUP_PRESET_ROUTE, BACKUP_REVEAL_ROUTE, BACKUP_VERSIONS_ROUTE, resolveApiUrl } from './api.js'
+import { SegmentedControl } from './components/SegmentedControl.jsx'
 
 /** 体积显示：保留一位小数，避免长数字撑破布局。 */
 export function formatBytes(bytes) {
@@ -16,6 +17,18 @@ export function formatBytes(bytes) {
   let i = 0
   while (value >= 1024 && i < units.length - 1) { value /= 1024; i++ }
   return value.toFixed(1) + ' ' + units[i]
+}
+
+/** 最近备份时间：当天只显示时分，跨天显示完整日期时间。 */
+export function formatBackupTime(iso) {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = n => String(n).padStart(2, '0')
+  const now = new Date()
+  const sameDay = date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()
+  const hm = pad(date.getHours()) + ':' + pad(date.getMinutes())
+  return sameDay ? hm : date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate()) + ' ' + hm
 }
 
 /** 把内部规则名翻成人话；完整规则放 title 供排查。 */
@@ -46,9 +59,12 @@ export function BackupPanel(props) {
   const [presetDraft, setPresetDraft] = useState('')
   const [loading, setLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
-  const [result, setResult] = useState(null)
+  const [backingUp, setBackingUp] = useState(false)
+  const [versions, setVersions] = useState({ count: 0, latest: null })
   const [error, setError] = useState(null)
   const [sectionOpen, setSectionOpen] = useState({})
+  const treeBoxRef = useRef(null)
+  const [treeHeight, setTreeHeight] = useState(null)
   const toggleSection = key => setSectionOpen(prev => ({ ...prev, [key]: !prev[key] }))
   const iconKindForRel = rel => {
     for (const nodes of Object.values(treeData)) {
@@ -61,6 +77,8 @@ export function BackupPanel(props) {
   useEffect(() => {
     let cancelled = false
     const boot = async () => {
+      // 选中预设时交给下面的回读 effect 加载，避免空规则树请求覆盖预设树
+      if (state.preset) return
       setLoading(true)
       try {
         const res = await fetch(resolveApiUrl(BACKUP_TREE_ROUTE), {
@@ -91,12 +109,28 @@ export function BackupPanel(props) {
     if (!res.ok || data?.ok !== true) throw new Error(data?.error || String(res.status))
     return data
   }
+  const loadVersions = async () => {
+    try {
+      const data = await request(BACKUP_VERSIONS_ROUTE, {})
+      setVersions({ count: data.count || 0, latest: data.latest || null })
+    } catch { /* 版本概览失败不影响设置页 */ }
+  }
+  useEffect(() => { void loadVersions() }, [])
+  useEffect(() => {
+    const active = state.preset || ''
+    if (active && active !== presetName) {
+      setPresetName(active)
+      void loadPreset(active)
+    }
+  }, [state.preset])
+
   const loadChildren = async (path, ov, rg) => {
     const data = await request(BACKUP_TREE_ROUTE, { path, overrides: ov, regex: rg })
     setTreeData(prev => ({ ...prev, [path]: data.nodes || [] }))
     setPresets(data.presets || [])
   }
   const reloadAll = async (ov, rg) => {
+    setTreeHeight(treeBoxRef.current?.offsetHeight ?? null)
     setLoading(true)
     setError(null)
     try {
@@ -112,7 +146,7 @@ export function BackupPanel(props) {
       setSummary(data.stats || null)
       setPresets(data.presets || [])
     } catch (e) { setError(e?.message || '') }
-    finally { setLoading(false) }
+    finally { setLoading(false); setTreeHeight(null) }
   }
   const toggleNode = async node => {
     const next = { ...overrides }
@@ -148,12 +182,14 @@ export function BackupPanel(props) {
       const data = await request(BACKUP_PRESET_ROUTE, { action: 'save', name, overrides, regex: regexDraft })
       setPresets(data.presets || [])
       setPresetName(name)
+      props.setBackupPreset?.(name)
     } catch (e) { setError(e?.message || '') }
   }
   const loadPreset = async name => {
     const target = name ?? presetName
     if (!target) {
       setOverrides({}); setRegex(''); setRegexDraft(''); setExpanded({})
+      props.setBackupPreset?.('')
       await reloadAll({}, '')
       return
     }
@@ -162,6 +198,7 @@ export function BackupPanel(props) {
       const ov = data.overrides || {}
       const rg = data.regex || ''
       setOverrides(ov); setRegex(rg); setRegexDraft(rg); setExpanded({})
+      props.setBackupPreset?.(target)
       await reloadAll(ov, rg)
     } catch (e) { setError(e?.message || '') }
   }
@@ -177,18 +214,38 @@ export function BackupPanel(props) {
       const data = await request(BACKUP_PRESET_ROUTE, { action: 'delete', name: presetName })
       setPresets(data.presets || [])
       setPresetName('')
+      props.setBackupPreset?.('')
     } catch (e) { setError(e?.message || '') }
+  }
+  const revealFolder = async () => {
+    try { await request(BACKUP_REVEAL_ROUTE, {}) } catch (e) { setError(e?.message || '') }
+  }
+  const pickDirectory = async () => {
+    const picker = globalThis.__DSH_DIRECTORY_PICKER__
+    if (picker && typeof picker.pick === 'function') return picker.pick()
+    throw new Error('目录选择器不可用')
   }
   const runExport = async () => {
     if (exporting) return
+    let dir
+    try { dir = await pickDirectory() } catch (e) { setError(e?.message || '目录选择器不可用'); return }
+    if (!dir) return
     setExporting(true)
     setError(null)
-    setResult(null)
     try {
-      const data = await request(BACKUP_EXPORT_ROUTE, { overrides, regex })
-      setResult(data)
+      await request(BACKUP_EXPORT_ROUTE, { overrides, regex, preset: presetName || undefined, dir })
     } catch (e) { setError(e?.message || '') }
     finally { setExporting(false) }
+  }
+  const runBackupNow = async () => {
+    if (backingUp) return
+    setBackingUp(true)
+    setError(null)
+    try {
+      await request(BACKUP_EXPORT_ROUTE, { overrides, regex, preset: presetName || undefined })
+      await loadVersions()
+    } catch (e) { setError(e?.message || '') }
+    finally { setBackingUp(false) }
   }
   const renderNode = (node, depth) => jsxs('div', {
     key: node.rel,
@@ -247,6 +304,38 @@ export function BackupPanel(props) {
       node.kind === 'directory' && expanded[node.rel] ? renderTree(treeData[node.rel], depth + 1) : null,
     ],
   }, 'branch'))
+  const presetControl = jsxs('div', {
+    className: 'dsh-backup-select',
+    onBlur: ev => { if (!ev.currentTarget.contains(ev.relatedTarget)) setPresetOpen(false) },
+    children: [
+      jsxs('button', {
+        type: 'button', className: 'dsh-backup-select-trigger',
+        'aria-haspopup': 'listbox', 'aria-expanded': presetOpen,
+        onClick: () => setPresetOpen(v => !v),
+        children: [
+          jsx('span', { children: presetName || t('backupDefaultPreset') }, 'label'),
+          jsx('span', { className: 'dsh-backup-select-caret', children: '▾' }, 'caret'),
+        ],
+      }, 'trigger'),
+      presetOpen ? jsx('div', {
+        className: 'dsh-backup-select-menu', role: 'listbox',
+        children: [
+          jsx('button', {
+            key: '__default__', type: 'button', role: 'option', 'aria-selected': !presetName,
+            className: 'dsh-backup-select-option' + (!presetName ? ' is-selected' : ''),
+            onClick: () => { setPresetOpen(false); setPresetName(''); void loadPreset('') },
+            children: t('backupDefaultPreset'),
+          }, 'opt-default'),
+          ...presets.map(n => jsx('button', {
+            key: n, type: 'button', role: 'option', 'aria-selected': n === presetName,
+            className: 'dsh-backup-select-option' + (n === presetName ? ' is-selected' : ''),
+            onClick: () => { setPresetOpen(false); setPresetName(n); void loadPreset(n) },
+            children: n,
+          }, 'opt-' + n)),
+        ],
+      }, 'menu') : null,
+    ],
+  }, 'preset-select-control')
   return jsxs('div', {
     className: 'dsh-backup-form',
     children: [
@@ -279,12 +368,31 @@ export function BackupPanel(props) {
         open: !!sectionOpen.tree,
         onToggle: () => toggleSection('tree'),
         actionLabel: sectionOpen.tree ? t('backupCollapse') : t('backupConfigure'),
+        control: presetControl,
         children: jsxs('div', {
           className: 'dsh-backup-combined-body',
           children: [
             jsxs('div', {
               className: 'dsh-backup-combined-section',
               children: [
+            jsxs('div', {
+              className: 'dsh-backup-preset-save-row',
+              children: [
+                jsx('span', { className: 'dsh-backup-preset-label', children: t('backupPreset') }, 'preset-label'),
+                jsxs('div', {
+                  className: 'dsh-backup-preset-controls',
+                  children: [
+                    jsx(Input, {
+                      type: 'text', value: presetDraft, onChange: e => setPresetDraft(e.target.value),
+                      placeholder: t('backupPresetName'), 'aria-label': t('backupPresetName'),
+                      className: 'dsh-backup-preset-name',
+                    }, 'preset-draft'),
+                    jsx(Button, { variant: 'outline', size: 'sm', className: 'dsh-backup-preset-save', onClick: savePreset, children: t('backupSavePreset') }, 'preset-save'),
+                    presetName ? jsx(Button, { variant: 'ghost', size: 'sm', className: 'dsh-backup-danger-text', onClick: deletePreset, children: t('backupDeletePreset') }, 'preset-delete') : null,
+                  ],
+                }, 'preset-controls'),
+              ],
+            }, 'preset-save-row'),
                 jsxs('div', {
                   className: 'dsh-backup-tree-head',
                   children: [
@@ -296,11 +404,6 @@ export function BackupPanel(props) {
                           onClick: () => reloadAll(overrides, regex),
                           children: loading ? t('backupRefreshing') : t('backupRefresh'),
                         }, 'refresh'),
-                        jsx(Button, {
-                          variant: 'ghost', size: 'sm',
-                          onClick: () => { setPresetOpen(false); setPresetName(''); setPresetDraft(''); void loadPreset('') },
-                          children: t('backupRestoreDefault'),
-                        }, 'restore-default'),
                       ],
                     }, 'tree-actions'),
                     jsx('span', { className: 'dsh-backup-tree-estimate', children: summary ? t('backupEstimate') + ' ' + formatBytes(summary.includeBytes) : t('backupEstimate') + ' …' }, 'estimate'),
@@ -308,6 +411,8 @@ export function BackupPanel(props) {
                 }, 'tree-head'),
                 jsx('div', {
                   className: 'dsh-backup-tree-box',
+                  ref: treeBoxRef,
+                  style: treeHeight !== null ? { height: treeHeight } : undefined,
                   children: loading
                     ? jsxs('div', { className: 'dsh-backup-tree-skeleton', 'aria-hidden': true, children: [70, 54, 76, 48, 62].map((w, i) => jsxs('div', { className: 'dsh-backup-tree-skeleton-row', children: [jsx('span', { className: 'dsh-backup-tree-skeleton-icon' }, 'icon'), jsx('span', { className: 'dsh-backup-tree-skeleton-line', style: { width: w + '%' } }, 'line')] }, 'sk-' + i)) }, 'skeleton')
                     : (treeData[''] || []).length
@@ -364,59 +469,6 @@ export function BackupPanel(props) {
                 }, 'regex-control'),
               ],
             }, 'regex-row'),
-            jsxs('div', {
-              className: 'dsh-backup-preset-head',
-              children: [
-                jsxs('div', {
-                  className: 'dsh-backup-preset-title',
-                  children: [
-                    jsx('div', { className: 'dsh-backup-preset-label', children: t('backupPreset') }, 'preset-label'),
-                    jsx('div', { className: 'dsh-backup-preset-desc', children: t('backupPresetDesc') }, 'preset-desc'),
-                  ],
-                }, 'preset-title'),
-                jsxs('div', {
-                  className: 'dsh-backup-preset-head-actions',
-                  children: [
-                    jsxs('div', {
-                      className: 'dsh-backup-select',
-                      onBlur: e => { if (!e.currentTarget.contains(e.relatedTarget)) setPresetOpen(false) },
-                      children: [
-                        jsxs('button', {
-                          type: 'button', className: 'dsh-backup-select-trigger',
-                          'aria-haspopup': 'listbox', 'aria-expanded': presetOpen, disabled: !presets.length,
-                          onClick: () => setPresetOpen(v => !v),
-                          children: [
-                            jsx('span', { children: presetName || t('backupSelectPreset') }, 'label'),
-                            jsx('span', { className: 'dsh-backup-select-caret', children: '▾' }, 'caret'),
-                          ],
-                        }, 'trigger'),
-                        presetOpen ? jsx('div', {
-                          className: 'dsh-backup-select-menu', role: 'listbox',
-                          children: presets.map(n => jsx('button', {
-                            key: n, type: 'button', role: 'option', 'aria-selected': n === presetName,
-                            className: 'dsh-backup-select-option' + (n === presetName ? ' is-selected' : ''),
-                            onClick: () => { setPresetOpen(false); setPresetName(n); void loadPreset(n) },
-                            children: n,
-                          }, 'opt-' + n)),
-                        }, 'menu') : null,
-                      ],
-                    }, 'preset-select'),
-                    presetName ? jsx(Button, { variant: 'ghost', size: 'sm', onClick: deletePreset, children: t('backupDeletePreset') }, 'preset-delete') : null,
-                  ],
-                }, 'preset-head-actions'),
-              ],
-            }, 'preset-head'),
-            jsxs('div', {
-              className: 'dsh-backup-preset-save-row',
-              children: [
-                jsx(Input, {
-                  type: 'text', value: presetDraft, onChange: e => setPresetDraft(e.target.value),
-                  placeholder: t('backupPresetName'), 'aria-label': t('backupPresetName'),
-                  className: 'dsh-backup-preset-name',
-                }, 'preset-draft'),
-                jsx(Button, { variant: 'outline', size: 'sm', className: 'dsh-backup-preset-save', onClick: savePreset, children: t('backupSavePreset') }, 'preset-save'),
-              ],
-            }, 'preset-save-row'),
           ],
         }, 'combined-body'),
       }, 'tree-disclosure'),
@@ -427,25 +479,71 @@ export function BackupPanel(props) {
           className: 'dsh-backup-export-actions',
           children: [
             jsx(Button, {
-              variant: 'primary', size: 'sm',
+              variant: 'ghost', size: 'sm',
               disabled: exporting || !state.writable,
               onClick: runExport,
-              children: exporting ? t('backupExporting') : t('backupExport'),
+              children: exporting ? t('backupExporting') : t('backupExportZip'),
             }, 'export'),
-            result ? jsx('a', {
-              className: 'dsh-plugins-btn',
-              href: resolveApiUrl(BACKUP_DOWNLOAD_ROUTE + '?name=' + encodeURIComponent(result.name)),
-              download: result.name,
-              children: t('backupDownload'),
-            }, 'download') : null,
           ],
         }, 'actions'),
       }, 'export-row'),
-      result ? jsx('p', {
-        className: 'dsh-backup-form-note',
-        style: STYLE.hint,
-        children: t('backupResult') + '：' + result.name + ' · ' + result.includeFiles + t('backupFiles') + ' · ' + result.excludeItems + t('backupExcludedCount'),
-      }, 'result') : null,
+      jsx(SettingRow, {
+        label: t('backupImport'),
+        control: jsx(Button, {
+          variant: 'ghost', size: 'sm',
+          onClick: () => {},
+          children: t('backupImportZip'),
+        }, 'import'),
+      }, 'import-row'),
+      jsx(SettingRow, {
+        label: t('backupAutoBackup'),
+        description: t('backupAutoBackupDesc'),
+        control: jsx(SegmentedControl, {
+          label: t('backupAutoBackup'),
+          options: [
+            { value: 0, label: t('backupAutoOff') },
+            { value: 1, label: t('backupHour1') },
+            { value: 6, label: t('backupHour6') },
+            { value: 24, label: t('backupDay1') },
+            { value: 168, label: t('backupWeek1') },
+          ],
+          value: Number(state.autoBackupHours) || 0,
+          disabled: !state.writable,
+          onChange: props.setAutoBackup,
+        }, 'auto-segment'),
+      }, 'auto-row'),
+      jsx(SettingRow, {
+        label: t('backupRetention'),
+        description: t('backupRetentionDesc'),
+        control: jsx(SegmentedControl, {
+          label: t('backupRetention'),
+          options: [3, 7, 14, 30].map(n => ({ value: n, label: String(n) })),
+          value: Number(state.retention) || 7,
+          disabled: !state.writable,
+          onChange: props.setRetention,
+        }, 'retention-segment'),
+      }, 'retention-row'),
+      jsx(SettingRow, {
+        label: t('backupFolder'),
+        description: t('backupFolderDesc'),
+        control: jsx(Button, {
+          variant: 'ghost', size: 'sm',
+          onClick: revealFolder,
+          children: t('backupReveal'),
+        }, 'reveal'),
+      }, 'folder-row'),
+      jsx(SettingRow, {
+        label: t('backupVersion'),
+        description: versions.count > 0
+          ? versions.count + t('backupVersionsCount') + ' · ' + t('backupVersionsLatest') + formatBackupTime(versions.latest)
+          : t('backupVersionsNone'),
+        control: jsx(Button, {
+          variant: 'ghost', size: 'sm',
+          disabled: backingUp || !state.writable,
+          onClick: runBackupNow,
+          children: backingUp ? t('backupExporting') : t('backupBackupNow'),
+        }, 'backup-now'),
+      }, 'version-row'),
       error ? jsx('p', { className: 'dsh-backup-form-note', role: 'alert', style: { ...STYLE.hint, color: '#f87171' }, children: t('backupError') + '：' + error }, 'error') : null,
     ],
   })

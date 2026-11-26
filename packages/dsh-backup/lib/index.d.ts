@@ -8,6 +8,12 @@ export interface Config {
   repo?: string
   /** 同步间隔小时，范围 1–168。默认 6。 */
   intervalHours?: number
+  /** 自动备份间隔小时，0 为关闭，范围 0–168。默认 0。 */
+  autoBackupHours?: number
+  /** 保留备份份数，范围 3–30。默认 7。 */
+  retention?: number
+  /** 当前选中的命名预设名，手动导出与自动备份都用它，空串为内置默认规则。默认空串。 */
+  preset?: string
 }
 
 /** Cordis 插件身份。 */

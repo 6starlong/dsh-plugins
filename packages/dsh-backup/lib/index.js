@@ -4,6 +4,7 @@
  */
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { spawn } from 'node:child_process'
 import { buildMatcher, dshHome, describeChildren, scanTree, DEFAULT_PRESET } from './rules.js'
 import { writeZip } from './zip.js'
 
@@ -16,12 +17,14 @@ const SECTION = 'dsh-backup'
 const EXPORT_ROUTE = '/api/starlong/dsh-backup/export'
 const DOWNLOAD_ROUTE = '/api/starlong/dsh-backup/download'
 const TOKEN_HEADER = 'x-starlong-backup'
-const EXPORT_DIR = join('backups', 'starlong')
+const EXPORT_DIR = 'backups'
 const PRESET_DIR = join(EXPORT_DIR, 'presets')
-const ZIP_NAME = /^dsh-backup-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.zip$/
+const ZIP_NAME = /^dsh-backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\.zip$/
 const PRESET_NAME = /^[A-Za-z0-9_-]{1,40}$/
 const TREE_ROUTE = '/api/starlong/dsh-backup/tree'
 const PRESET_ROUTE = '/api/starlong/dsh-backup/preset'
+const REVEAL_ROUTE = '/api/starlong/dsh-backup/reveal'
+const VERSIONS_ROUTE = '/api/starlong/dsh-backup/versions'
 
 /** volatile 代理取真实值。 */
 function unwrap(raw, fallback) {
@@ -118,7 +121,66 @@ function mergeOptions(body, named) {
   return { overrides: rawOverrides ?? named?.overrides ?? {}, regex: rawRegex ?? named?.regex ?? '' }
 }
 
-/** 命名预设只在 backups/starlong/presets 下读写，名称白名单防路径穿越。 */
+/** 从备份文件名解析时刻；写入端用本地时间拼 stamp，这里对称解析。 */
+function stampTime(name) {
+  const match = /^dsh-backup_([0-9]{4})-([0-9]{2})-([0-9]{2})_([0-9]{2})-([0-9]{2})-([0-9]{2})[.]zip$/.exec(name)
+  if (!match) return null
+  const time = new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5], +match[6])
+  return Number.isNaN(time.getTime()) ? null : time.getTime()
+}
+
+/** 最近一份备份的时刻；没有合规备份返回 null，调度方据此立即备份。 */
+async function lastBackupTime(home) {
+  let names
+  try { names = await readdir(join(home, EXPORT_DIR)) } catch { return null }
+  let latest = null
+  for (const name of names) {
+    const time = stampTime(name)
+    if (time !== null && (latest === null || time > latest)) latest = time
+  }
+  return latest
+}
+
+/** 只保留最近 keep 份备份，按文件名时刻降序删除更旧的。 */
+async function pruneBackups(home, keepRaw) {
+  const keep = Math.max(3, Math.min(30, Math.round(Number(keepRaw) || 7)))
+  let names
+  try { names = await readdir(join(home, EXPORT_DIR)) } catch { return 0 }
+  const list = names.map(name => ({ name, time: stampTime(name) })).filter(item => item.time !== null)
+  if (list.length <= keep) return 0
+  list.sort((a, b) => b.time - a.time || b.name.localeCompare(a.name))
+  let removed = 0
+  for (const item of list.slice(keep)) {
+    try { await unlink(join(home, EXPORT_DIR, item.name)); removed++ } catch { /* 已消失或占用 */ }
+  }
+  return removed
+}
+
+/** 扫描并写一份 zip 到指定目录（默认 backups），返回统计；手动导出与自动备份共用。 */
+async function createBackup(home, options, ctx, preset, outDirOverride) {
+  const matcher = buildMatcher(DEFAULT_PRESET, options.regex)
+  const scanned = await scanTree(home, matcher, count => {
+    ctx.logger?.debug?.('[dsh-plugins] 备份扫描 ' + count + ' 项')
+  }, options.overrides)
+  const outDir = typeof outDirOverride === 'string' && outDirOverride !== '' ? outDirOverride : join(home, EXPORT_DIR)
+  await mkdir(outDir, { recursive: true })
+  const now = new Date()
+  const pad = value => String(value).padStart(2, '0')
+  const stamp = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) + '_' + pad(now.getHours()) + '-' + pad(now.getMinutes()) + '-' + pad(now.getSeconds())
+  const zipName = 'dsh-backup_' + stamp + '.zip'
+  const manifest = {
+    createdAt: now.toISOString(), home,
+    preset: typeof preset === 'string' && preset !== '' ? preset : null,
+    overrides: options.overrides, regex: options.regex,
+    stats: scanned.stats,
+    excluded: scanned.excluded,
+  }
+  const entries = [...scanned.included, { rel: '_manifest.json', data: Buffer.from(JSON.stringify(manifest, null, 2), 'utf8') }]
+  const result = await writeZip(join(outDir, zipName), entries)
+  return { name: zipName, bytes: result.bytes, ...scanned.stats }
+}
+
+/** 命名预设只在 backups/presets 下读写，名称白名单防路径穿越。 */
 async function loadNamed(home, name) {
   if (typeof name !== 'string' || !PRESET_NAME.test(name)) return null
   try {
@@ -146,7 +208,7 @@ function safeRel(value) {
 }
 
 /**
- * 装配模块。只注册导出/下载路由；开关关闭时不注册。
+ * 装配模块。只注册导出/下载/树/预设/打开目录/版本路由；开关关闭时不注册。
  * @param {import('@deepseek-ai/cordis').Context} ctx - 宿主上下文。
  * @param {unknown} config - 套件 config。
  */
@@ -165,27 +227,11 @@ export function apply(ctx, config) {
       const home = dshHome()
       const named = await loadNamed(home, body?.preset)
       const options = mergeOptions(body, named)
+      const dir = typeof body?.dir === 'string' && body.dir.trim() !== '' ? body.dir.trim() : null
       try {
-        const matcher = buildMatcher(DEFAULT_PRESET, options.regex)
-        const scanned = await scanTree(home, matcher, count => {
-          ctx.logger?.debug?.('[dsh-plugins] 备份扫描 ' + count + ' 项')
-        }, options.overrides)
-        const outDir = join(home, EXPORT_DIR)
-        await mkdir(outDir, { recursive: true })
-        const now = new Date()
-        const pad = value => String(value).padStart(2, '0')
-        const stamp = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate()) + '-' + pad(now.getHours()) + '-' + pad(now.getMinutes()) + '-' + pad(now.getSeconds())
-        const zipName = 'dsh-backup-' + stamp + '.zip'
-        const manifest = {
-          createdAt: now.toISOString(), home,
-          preset: typeof body?.preset === 'string' ? body.preset : null,
-          overrides: options.overrides, regex: options.regex,
-          stats: scanned.stats,
-          excluded: scanned.excluded,
-        }
-        const entries = [...scanned.included, { rel: '_manifest.json', data: Buffer.from(JSON.stringify(manifest, null, 2), 'utf8') }]
-        const result = await writeZip(join(outDir, zipName), entries)
-        sendJson(response, 200, { ok: true, name: zipName, bytes: result.bytes, ...scanned.stats })
+        const result = await createBackup(home, options, ctx, body?.preset, dir)
+        if (dir === null) await pruneBackups(home, unwrap(section.retention, 7))
+        sendJson(response, 200, { ok: true, ...result })
       } catch (error) {
         ctx.logger?.warn?.('[dsh-plugins] 备份导出失败：' + (error?.message || String(error)))
         sendJson(response, 500, { ok: false, error: error?.message || String(error) })
@@ -270,15 +316,73 @@ export function apply(ctx, config) {
       return sendJson(response, 400, { ok: false, error: 'bad action' })
     }
 
-    const a = webServer.register({ kind: 'exact', path: EXPORT_ROUTE, handler: onExport })
-    const b = webServer.register({ kind: 'exact', path: DOWNLOAD_ROUTE, handler: onDownload })
-    const c = webServer.register({ kind: 'exact', path: TREE_ROUTE, handler: onTree })
-    const d = webServer.register({ kind: 'exact', path: PRESET_ROUTE, handler: onPreset })
+    /** 打开备份目录：路径由服务端算定，前端不传路径，避免任意目录被调起。 */
+    const onReveal = async (request, response) => {
+      if (rejectByConnection(ctx, request, response)) return
+      if (!isTrustedExport(request)) return sendJson(response, 403, { ok: false, error: 'forbidden' })
+      const dir = join(dshHome(), EXPORT_DIR)
+      try {
+        await mkdir(dir, { recursive: true })
+        const command = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open'
+        const child = spawn(command, [dir], { detached: true, stdio: 'ignore' })
+        child.on?.('error', error => ctx.logger?.warn?.('[dsh-plugins] 打开备份目录失败：' + (error?.message || String(error))))
+        child.unref?.()
+        sendJson(response, 200, { ok: true, path: dir })
+      } catch (error) {
+        sendJson(response, 500, { ok: false, error: error?.message || String(error) })
+      }
+    }
+
+    /** 版本概览：只读 backups 目录，返回份数与最近备份时刻。 */
+    const onVersions = async (request, response) => {
+      if (rejectByConnection(ctx, request, response)) return
+      if (!isTrustedExport(request)) return sendJson(response, 403, { ok: false, error: 'forbidden' })
+      let names
+      try { names = await readdir(join(dshHome(), EXPORT_DIR)) } catch { names = [] }
+      const times = names.map(stampTime).filter(time => time !== null)
+      const latest = times.length > 0 ? new Date(Math.max(...times)).toISOString() : null
+      sendJson(response, 200, { ok: true, count: times.length, latest })
+    }
+
+    /** 启动即检查一次，之后每分钟复查：距最近备份满间隔就备一份；DSH 关闭时随 effect 停止。 */
+    const CHECK_MS = 60_000
+    let timer
+    let running = false
+    const checkAutoBackup = async () => {
+      if (running) return
+      const hours = Math.max(0, Math.min(168, Math.round(Number(unwrap(section.autoBackupHours, 0)) || 0)))
+      if (hours === 0) return
+      const home = dshHome()
+      const last = await lastBackupTime(home)
+      if (last !== null && Date.now() - last < hours * 3600_000) return
+      running = true
+      try {
+        const presetName = unwrap(section.preset, '')
+        const named = await loadNamed(home, presetName)
+        await createBackup(home, { overrides: named?.overrides ?? {}, regex: named?.regex ?? '' }, ctx, presetName)
+        await pruneBackups(home, unwrap(section.retention, 7))
+        ctx.logger?.info?.('[dsh-plugins] 自动备份完成')
+      } catch (error) {
+        ctx.logger?.warn?.('[dsh-plugins] 自动备份失败：' + (error?.message || String(error)))
+      } finally {
+        running = false
+      }
+    }
+    timer = setInterval(() => { void checkAutoBackup() }, CHECK_MS)
+    timer.unref?.()
+    void checkAutoBackup()
+
+    const disposers = [
+      webServer.register({ kind: 'exact', path: EXPORT_ROUTE, handler: onExport }),
+      webServer.register({ kind: 'exact', path: DOWNLOAD_ROUTE, handler: onDownload }),
+      webServer.register({ kind: 'exact', path: TREE_ROUTE, handler: onTree }),
+      webServer.register({ kind: 'exact', path: PRESET_ROUTE, handler: onPreset }),
+      webServer.register({ kind: 'exact', path: REVEAL_ROUTE, handler: onReveal }),
+      webServer.register({ kind: 'exact', path: VERSIONS_ROUTE, handler: onVersions }),
+    ]
     return () => {
-      try { a?.() } catch {}
-      try { b?.() } catch {}
-      try { c?.() } catch {}
-      try { d?.() } catch {}
+      clearInterval(timer)
+      for (const dispose of disposers) { try { dispose?.() } catch {} }
     }
   }, 'dsh-plugins 备份导出路由')
 }
