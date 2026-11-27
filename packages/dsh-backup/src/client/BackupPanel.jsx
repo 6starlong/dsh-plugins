@@ -6,7 +6,7 @@ import { DaysInput, TextInput } from './fields.jsx'
 import { SettingRow } from './components/SettingRow.jsx'
 import { RestoreOverlay } from './components/RestoreOverlay.jsx'
 import { DisclosureRow } from './components/DisclosureRow.jsx'
-import { BACKUP_EXPORT_ROUTE, BACKUP_TOKEN_HEADER, BACKUP_TREE_ROUTE, BACKUP_PRESET_ROUTE, BACKUP_REVEAL_ROUTE, BACKUP_VERSIONS_ROUTE, BACKUP_RESTORE_STREAM_ROUTE, BACKUP_UPLOAD_ROUTE, resolveApiUrl } from './api.js'
+import { BACKUP_EXPORT_ROUTE, BACKUP_TOKEN_HEADER, BACKUP_TREE_ROUTE, BACKUP_PRESET_ROUTE, BACKUP_REVEAL_ROUTE, BACKUP_VERSIONS_ROUTE, BACKUP_VERIFY_ROUTE, BACKUP_RESTORE_STREAM_ROUTE, BACKUP_UPLOAD_ROUTE, resolveApiUrl } from './api.js'
 import { SegmentedControl } from './components/SegmentedControl.jsx'
 
 /** 体积显示：保留一位小数，避免长数字撑破布局。 */
@@ -72,6 +72,7 @@ export function BackupPanel(props) {
   const [restoreFileName, setRestoreFileName] = useState('')
   const [restorePassword, setRestorePassword] = useState('')
   const [restoreStarted, setRestoreStarted] = useState(false)
+  const [restoreValidated, setRestoreValidated] = useState(false)
   const restoreStartedRef = useRef(false)
   const fileInputRef = useRef(null)
   const restoreFileRef = useRef(null)
@@ -121,7 +122,11 @@ export function BackupPanel(props) {
       body: JSON.stringify(body),
     })
     const data = await res.json().catch(() => ({}))
-    if (!res.ok || data?.ok !== true) throw new Error(data?.error || String(res.status))
+    if (!res.ok || data?.ok !== true) {
+      const err = new Error(data?.error || String(res.status))
+      err.code = data?.code
+      throw err
+    }
     return data
   }
   const uploadFile = async file => {
@@ -164,7 +169,11 @@ export function BackupPanel(props) {
         const data = JSON.parse(raw)
         if (event === 'stage') onStage?.(data.phase)
         else if (event === 'done') finalResult = data.result
-        else if (event === 'error') throw new Error(data.error || '还原失败')
+        else if (event === 'error') {
+          const err = new Error(data.error || '还原失败')
+          err.code = data.code
+          throw err
+        }
       }
     }
     if (!finalResult) throw new Error('还原结束但未返回结果')
@@ -182,23 +191,16 @@ export function BackupPanel(props) {
     const input = event?.target
     const file = input?.files?.[0]
     if (input) input.value = ''
-    restoreStartedRef.current = false
-    setRestoreStarted(false)
+    resetRestore()
     if (!file) return
     if (!/\.zip$/i.test(file.name || '')) {
-      restoreFileRef.current = null
-      setRestoreFileName('')
       setRestoreError('请选择 zip 备份文件')
-      setRestoreResult(null)
       setRestorePhase(-2)
       setRestoreOpen(true)
       return
     }
     restoreFileRef.current = file
     setRestoreFileName(file.name)
-    setRestoreError('')
-    setRestoreResult(null)
-    setRestorePhase(-1)
     setRestoreOpen(true)
   }
   const toggleRestoreRow = () => {
@@ -207,15 +209,30 @@ export function BackupPanel(props) {
       setRestoreOpen(false)
       return
     }
+    resetRestore()
+    setRestoreOpen(true)
+  }
+  const resetRestore = () => {
     restoreFileRef.current = null
     restoreStartedRef.current = false
     setRestoreFileName('')
     setRestorePassword('')
     setRestoreStarted(false)
+    setRestoreValidated(false)
     setRestoreError('')
     setRestoreResult(null)
     setRestorePhase(-1)
-    setRestoreOpen(true)
+  }
+  const verifyRestore = async path => {
+    setRestoreValidated(false)
+    try {
+      await request(BACKUP_VERIFY_ROUTE, { path, password: restorePassword || undefined, passwordOnly: true })
+      return true
+    } catch (e) {
+      setRestoreError(e?.code === 'password' ? t('backupPasswordWrong') : (e?.message || String(e)))
+      setRestorePhase(-2)
+      return false
+    }
   }
   const runRestore = async () => {
     const file = restoreFileRef.current
@@ -227,17 +244,23 @@ export function BackupPanel(props) {
     setRestorePhase(0)
     try {
       const uploaded = await uploadFile(file)
-      const payload = { path: uploaded.path }
+      if (!await verifyRestore(uploaded.path)) {
+        restoreStartedRef.current = false
+        setRestoreStarted(false)
+        return
+      }
+      setRestoreValidated(true)
+      const payload = { path: uploaded.path, password: restorePassword || undefined }
       const result = await streamRestore(payload, phase => {
         if (phase < 3) setRestorePhase(phase)
       })
       setRestoreResult(result)
       setRestorePhase(3)
     } catch (e) {
-      setRestoreError(e?.message || String(e))
+      setRestoreError(e?.code === 'password' ? t('backupPasswordWrong') : (e?.message || String(e)))
       setRestorePhase(-2)
+      setRestoreStarted(false)
     } finally {
-      restoreFileRef.current = null
       restoreStartedRef.current = false
     }
   }
@@ -360,7 +383,7 @@ export function BackupPanel(props) {
     setExporting(true)
     setError(null)
     try {
-      await request(BACKUP_EXPORT_ROUTE, { overrides, regex, preset: presetName || undefined, dir })
+      await request(BACKUP_EXPORT_ROUTE, { overrides, regex, preset: presetName || undefined, dir, password: exportPassword || undefined })
       await loadVersions()
     } catch (e) { setError(e?.message || '') }
     finally { setExporting(false) }
@@ -708,11 +731,11 @@ export function BackupPanel(props) {
           }, 'fields'),
           jsx('p', { className: 'dsh-backup-restore-hint', children: t('backupRestoreBody') }, 'hint'),
           !restoreStarted && restoreError ? jsx('p', { className: 'dsh-backup-restore-error', role: 'alert', children: restoreError }, 'pre-error') : null,
-          restoreStarted ? jsx(RestoreOverlay, {
+          restoreStarted && restoreValidated ? jsx(RestoreOverlay, {
             t, open: restoreOpen, phase: restorePhase,
             result: restoreResult, error: restoreError, onClose: closeRestore,
           }, 'restore-overlay') : null,
-          restoreStarted ? null : jsx('div', {
+          jsx('div', {
             className: 'dsh-backup-restore-actions',
             children: [
               jsx(Button, { variant: 'ghost', size: 'sm', disabled: restoreBusy, onClick: closeRestore, children: t('backupRestoreCancel') }, 'cancel'),
@@ -720,15 +743,13 @@ export function BackupPanel(props) {
                 variant: 'outline', size: 'sm', disabled: restoreBusy,
                 onClick: () => {
                   if (!restoreFileRef.current) {
-                    setRestoreStarted(false)
-                    setRestoreResult(null)
-                    setRestorePhase(-1)
                     setRestoreError(t('backupRestoreNeedFile'))
                     return
                   }
+                  if (restorePhase === 3) { resetRestore(); return }
                   void runRestore()
                 },
-                children: t('backupImport'),
+                children: restorePhase === 3 ? t('backupReimport') : (restoreBusy ? t('backupRestoring') : t('backupImport')),
               }, 'import'),
             ],
           }, 'footer'),

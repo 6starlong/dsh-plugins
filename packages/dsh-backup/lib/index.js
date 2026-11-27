@@ -8,7 +8,8 @@ import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:pa
 import { tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { buildMatcher, dshHome, describeChildren, scanTree, DEFAULT_PRESET } from './rules.js'
-import { readZip, writeZip } from './zip.js'
+import { checkVerifier } from './crypto.js'
+import { peekAesVerifier, readZip, writeZip } from './zip.js'
 
 export { Config } from './config.js'
 
@@ -268,7 +269,7 @@ export async function installProfilePlugins(home, profiles, runner = runInstallC
 }
 
 /** 扫描并写一份 zip 到指定目录（默认 backups），返回统计；手动导出与自动备份共用。 */
-async function createBackup(home, options, ctx, preset, outDirOverride) {
+async function createBackup(home, options, ctx, preset, outDirOverride, password = '') {
   const matcher = buildMatcher(DEFAULT_PRESET, options.regex)
   const scanned = await scanTree(home, matcher, count => {
     ctx.logger?.debug?.('[dsh-plugins] 备份扫描 ' + count + ' 项')
@@ -296,21 +297,17 @@ async function createBackup(home, options, ctx, preset, outDirOverride) {
   const entries = [...scanned.included, ...injected, { rel: '_manifest.json', data: () => Buffer.from(JSON.stringify(manifest, null, 2), 'utf8') }]
   const result = await writeZip(join(outDir, zipName), entries, undefined, (rel, data) => {
     if (rel !== '_manifest.json') manifest.checksums[rel] = createHash('sha256').update(data).digest('hex')
-  })
+  }, password)
   return { name: zipName, bytes: result.bytes, ...scanned.stats, injectedPresets: injected.length, pluginProfiles: manifest.plugins.length }
 }
 
-/** 校验备份包完整性：对清单内每个文件重算 SHA256，返回缺失与不符清单。 */
-async function verifyBackup(filePath) {
-  let entries, manifest
-  try {
-    entries = readZip(await readFile(filePath))
-    const meta = entries.find(entry => entry.rel === '_manifest.json')
-    if (!meta) return { ok: false, error: 'missing manifest' }
-    manifest = JSON.parse(meta.data.toString('utf8'))
-  } catch (error) {
-    return { ok: false, error: error?.message || String(error) }
-  }
+/** 对已解压条目逐项核对清单 SHA256，不读盘、不解密；供还原复用，避免二次全量校验。 */
+function verifyEntries(entries) {
+  const meta = entries.find(entry => entry.rel === '_manifest.json')
+  if (!meta) return { ok: false, error: 'missing manifest' }
+  let manifest
+  try { manifest = JSON.parse(meta.data.toString('utf8')) }
+  catch (error) { return { ok: false, code: error?.code ?? 'read', error: error?.message || String(error) } }
   const checksums = manifest.checksums !== null && typeof manifest.checksums === 'object' ? manifest.checksums : {}
   const byRel = new Map(entries.filter(entry => entry.rel !== '_manifest.json').map(entry => [entry.rel, entry]))
   const missing = []
@@ -321,6 +318,26 @@ async function verifyBackup(filePath) {
     if (createHash('sha256').update(entry.data).digest('hex') !== expected) mismatch.push(rel)
   }
   return { ok: missing.length === 0 && mismatch.length === 0, count: Object.keys(checksums).length, missing, mismatch }
+}
+
+/** 单独校验路由：读一次 zip 解压后交给 verifyEntries。 */
+async function verifyBackup(filePath, password = '') {
+  let entries
+  try { entries = readZip(await readFile(filePath), password) }
+  catch (error) { return { ok: false, code: error?.code ?? 'read', error: error?.message || String(error) } }
+  return verifyEntries(entries)
+}
+
+/** 导入前只验口令：读首个 AES 条目的 salt+校验值比对，明文包直接放行，不解压不哈希。 */
+async function checkBackupPassword(filePath, password = '') {
+  try {
+    const head = await peekAesVerifier(filePath)
+    if (head === null) return { ok: true }
+    if (!checkVerifier(head, password)) return { ok: false, code: 'password', error: 'wrong password' }
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, code: error?.code ?? 'read', error: error?.message || String(error) }
+  }
 }
 
 /** 从 backups 选备份：显式文件名走白名单，空值或 latest 取最新一份。 */
@@ -463,21 +480,26 @@ function requestName(request, body) {
   try { return new URL(request?.url ?? '/', 'http://localhost').searchParams.get('name') ?? '' } catch { return '' }
 }
 
+/** 口令只接受字符串；空字符串表示明文包，自动备份不传即保持明文。 */
+function readPassword(body) {
+  return typeof body?.password === 'string' ? body.password : ''
+}
+
 /**
  * 增量还原：只写备份包里的文件，同名覆盖，不删除原有文件，依赖目录整棵跳过。
  * 校验不通过时一个字节都不写；dryRun 只返回将要写入的路径。
  */
-async function restoreBackup(filePath, home, dryRun, onPhase, ctx) {
+async function restoreBackup(filePath, home, dryRun, onPhase, ctx, password = '') {
   let entries
   try {
-    entries = readZip(await readFile(filePath))
+    entries = readZip(await readFile(filePath), password)
   } catch (error) {
-    return { ok: false, code: 'read', error: error?.message || String(error) }
+    return { ok: false, code: error?.code === 'password' ? 'password' : 'read', error: error?.message || String(error) }
   }
   if (!entries.some(entry => entry.rel === '_manifest.json')) {
     return { ok: false, code: 'manifest', error: 'missing manifest' }
   }
-  const verified = await verifyBackup(filePath)
+  const verified = verifyEntries(entries)
   if (!verified.ok) {
     return { ok: false, code: 'integrity', error: 'integrity check failed', missing: verified.missing, mismatch: verified.mismatch }
   }
@@ -587,7 +609,7 @@ export function apply(ctx, config) {
       const options = mergeOptions(body, named)
       const dir = typeof body?.dir === 'string' && body.dir.trim() !== '' ? body.dir.trim() : null
       try {
-        const result = await createBackup(home, options, ctx, body?.preset, dir)
+        const result = await createBackup(home, options, ctx, body?.preset, dir, readPassword(body))
         if (dir === null) await pruneBackups(home, unwrap(section.retention, 7))
         sendJson(response, 200, { ok: true, ...result })
       } catch (error) {
@@ -710,7 +732,9 @@ export function apply(ctx, config) {
       const home = dshHome()
       const filePath = await resolveRestoreFile(home, request, body)
       if (filePath === null) return sendJson(response, 400, { ok: false, error: 'bad path' })
-      const result = await verifyBackup(filePath)
+      const result = body?.passwordOnly === true
+        ? await checkBackupPassword(filePath, readPassword(body))
+        : await verifyBackup(filePath, readPassword(body))
       if (!result.ok && isUploadedTemp(filePath)) {
         await unlink(filePath).catch(() => {})
       }
@@ -761,7 +785,7 @@ export function apply(ctx, config) {
       let status
       let payload
       try {
-        payload = await restoreBackup(filePath, home, body?.dryRun === true, undefined, ctx)
+        payload = await restoreBackup(filePath, home, body?.dryRun === true, undefined, ctx, readPassword(body))
         status = payload.ok ? 200 : 409
       } catch (error) {
         ctx.logger?.warn?.('[dsh-plugins] 还原失败：' + (error?.message || String(error)))
@@ -795,7 +819,7 @@ export function apply(ctx, config) {
       try {
         const payload = await restoreBackup(filePath, home, body?.dryRun === true, phase => {
           if (phase < 3) emit('stage', { phase })
-        }, ctx)
+        }, ctx, readPassword(body))
         if (payload.ok) emit('done', { ok: true, result: payload })
         else emit('error', { error: payload.error || '还原失败', code: payload.code, result: payload })
       } catch (error) {
