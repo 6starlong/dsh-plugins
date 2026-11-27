@@ -5,8 +5,7 @@ export const BACKUP_TREE_ROUTE = '/api/starlong/dsh-backup/tree'
 export const BACKUP_PRESET_ROUTE = '/api/starlong/dsh-backup/preset'
 export const BACKUP_REVEAL_ROUTE = '/api/starlong/dsh-backup/reveal'
 export const BACKUP_VERSIONS_ROUTE = '/api/starlong/dsh-backup/versions'
-export const BACKUP_VERIFY_ROUTE = '/api/starlong/dsh-backup/verify'
-export const BACKUP_RESTORE_ROUTE = '/api/starlong/dsh-backup/restore'
+export const BACKUP_RESTORE_STREAM_ROUTE = '/api/starlong/dsh-backup/restore-stream'
 export const BACKUP_UPLOAD_ROUTE = '/api/starlong/dsh-backup/upload'
 
 /** 把根绝对路径端点挂到页面 base 下，兼容带路径前缀的反向代理。 */

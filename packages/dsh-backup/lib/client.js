@@ -4,7 +4,7 @@ window.__ModuleLoader__.load({
   factory: function (require) {
     var module = { exports: {} };
     var exports = module.exports;
-    const { useSyncExternalStore, useEffect, useLayoutEffect, useRef, useState } = require("react")
+    const { useSyncExternalStore, useEffect, useState, useRef } = require("react")
     const { jsx, jsxs } = require("react/jsx-runtime")
     const { Input, Button, FileTypeIcon, classifyFileType } = require("@deepseek-ai/dsh-client-ui-primitives")
 
@@ -184,11 +184,11 @@ window.__ModuleLoader__.load({
         backupFolder: '备份文件夹',
         backupFolderDesc: '立即备份与命名预设的保存位置',
         backupReveal: '显示',
+        backupExportTitle: '导出备份',
+        backupImportTitle: '导入备份',
         backupExport: '导出',
-        backupExportZip: '导出 ZIP',
         backupImport: '导入',
-        backupImportZip: '导入 ZIP',
-        backupExportDesc: '立即按清单生成 zip',
+        backupImportZip: '导入',
         backupAutoBackup: '自动备份',
         backupAutoBackupDesc: 'DSH 运行期间按间隔备份，关闭后不运行',
         backupAutoOff: '关闭',
@@ -205,22 +205,27 @@ window.__ModuleLoader__.load({
         backupBackupNow: '立即备份',
         backupExporting: '导出中…',
         backupError: '导出失败',
-        backupRestoreTitle: '一键还原',
-        backupRestoreBody: '选择本地备份 zip；还原只增量覆盖，不删除原有文件，也不改动已装依赖。',
-        backupRestoreConfirm: '开始还原',
+        backupRestoreBody: '选择本地备份 zip；先恢复文件，再按备份时的依赖清单安装插件，只增量覆盖不删除原有文件。',
         backupRestoreCancel: '取消',
         backupRestoreClose: '关闭',
         backupRestorePhaseVerify: '校验备份包',
         backupRestorePhaseFiles: '恢复文件',
-        backupRestorePhaseModules: '保留已装依赖',
+        backupRestorePhaseModules: '安装插件',
         backupRestorePhaseDone: '还原完成',
-        backupRestoreDone: '还原完成',
         backupRestoreFailed: '还原失败',
-        backupRestoreSelected: '选中备份',
-        backupRestoreSummary: '新增 {added} 个文件，覆盖 {overwritten} 个，已装依赖未重复安装。',
+        backupRestoreFile: '文件',
+        backupRestoreUnselected: '未选择文件',
+        backupRestoreChoose: '选择...',
+        backupRestoreNeedFile: '请先选择文件',
+        backupPassword: '口令',
+        backupPasswordPlaceholder: '备份未加密时留空',
+        backupPasswordConfirm: '确认口令',
+        backupPasswordMismatch: '两次口令不一致',
+        backupRestoreRestart: '需重启 DSH 后生效。',
+        backupRestoreSummary: '新增 {added} 个文件，覆盖 {overwritten} 个，安装 {installed} 个插件，已合并 workspace.json。',
+        backupRestorePluginFailed: '，{count} 个安装失败',
         backupConfigure: '配置',
         backupEdit: '编辑',
-        backupCollapse: '收起',
       },
     }
 
@@ -296,7 +301,6 @@ window.__ModuleLoader__.load({
     .dsh-backup-preset-save-row + *{border-top:0.5px solid var(--dsw-alias-border-l1);padding-top:12px}
     .dsh-backup-disclosure-toggle{flex:none}
     .dsh-backup-muted{font-size:12px;color:var(--dsw-alias-label-secondary);padding:8px 0}
-    .dsh-backup-export-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
     .dsh-backup-segmented{display:inline-flex;align-items:center;gap:2px;padding:2px;border:0.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsh-backup-radius);background:var(--dsw-alias-bg-layer-1)}
     .dsh-backup-segment{box-sizing:border-box;min-width:46px;height:24px;padding:0 8px;border:0;border-radius:calc(var(--dsh-backup-radius) - 2px);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:1;cursor:pointer}
     .dsh-backup-segment:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2)}
@@ -339,22 +343,26 @@ window.__ModuleLoader__.load({
     .dsh-backup-tree-name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px}
     .dsh-backup-tree-size{box-sizing:border-box;justify-self:end;width:96px;padding-right:12px;text-align:right;white-space:nowrap;opacity:.6;font-size:12px;font-variant-numeric:tabular-nums}
     @media (prefers-reduced-motion:reduce){.dsh-backup-tree-skeleton-icon,.dsh-backup-tree-skeleton-line{animation:none}}
-    /* 一键还原浮层：锚定导入按钮的小卡片，无全屏遮罩；校验与恢复由服务端执行。 */
-    .dsh-backup-restore-card{padding:16px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));border-radius:8px;background:var(--dsw-alias-bg-layer-3,rgba(32,32,32,.98));color:inherit;box-shadow:0 8px 24px rgba(0,0,0,.35)}
-    .dsh-backup-modal-title{font-weight:600;font-size:15px;margin-bottom:8px}
-    .dsh-backup-modal-desc{margin:0;opacity:.7;font-size:12px;line-height:1.6}
-    .dsh-backup-modal-file{margin:8px 0 0;opacity:.9;font-size:12px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-    .dsh-backup-modal-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:16px}
-    .dsh-backup-modal-done{margin-right:auto;opacity:.8;font-size:12px;min-width:0;line-height:1.5}
-    .dsh-backup-restore-card .dsh-plugins-btn{flex:none;white-space:nowrap}
-    .dsh-backup-restore-steps{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+    /* 一键还原：导入行内展开，进度中不关闭；校验与恢复由服务端执行。 */
+    .dsh-backup-restore-inline{margin:0 0 14px;padding:12px 0 12px 72px}
+    .dsh-backup-restore-fields{display:flex;flex-direction:column;gap:10px}
+    .dsh-backup-restore-field{display:flex;align-items:center;gap:8px;min-height:34px}
+    .dsh-backup-restore-label{flex:none;width:52px;opacity:.7;font-size:13px}
+    .dsh-backup-restore-value{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px}
+    .dsh-backup-restore-input{flex:1;min-width:0;box-sizing:border-box;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));border-radius:6px;background:transparent;color:inherit;font-size:13px}
+    .dsh-backup-restore-hint{margin:8px 0 0;opacity:.7;font-size:12px;line-height:1.5}
+    .dsh-backup-restore-error{margin:8px 0 0;color:#f87171;font-size:12px;line-height:1.5}
+    .dsh-backup-restore-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:12px}
+    .dsh-backup-restore-steps{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
     .dsh-backup-restore-step{display:flex;align-items:center;gap:10px;font-size:13px;opacity:.5}
     .dsh-backup-restore-step.is-active{opacity:1;font-weight:500}
     .dsh-backup-restore-step.is-done{opacity:.75}
     .dsh-backup-restore-dot{box-sizing:border-box;flex:none;width:18px;height:18px;border:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.5));border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px}
     .dsh-backup-restore-step.is-active .dsh-backup-restore-dot{border-color:var(--dsw-alias-text-muted,rgba(160,160,160,.9));background:transparent;color:inherit}
     .dsh-backup-restore-step.is-done .dsh-backup-restore-dot{border-color:var(--dsw-alias-state-success-primary,#10b981);color:var(--dsw-alias-state-success-primary,#10b981)}
-    .dsh-backup-restore-card .dsh-plugins-btn:disabled{opacity:.5;cursor:not-allowed}
+    .dsh-backup-restore-result{margin-top:12px}
+    .dsh-backup-restore-summary{display:block;opacity:.8;font-size:12px;line-height:1.5}
+    .dsh-backup-restart{margin:6px 0 0;color:var(--dsw-alias-state-warn-primary,#f59e0b);font-size:12px}
     `
 
     // ---- fields.jsx ----
@@ -450,9 +458,17 @@ window.__ModuleLoader__.load({
     // ---- components/SettingRow.jsx ----
 
     /** 统一设置行：左侧标题与描述，右侧表单控件。 */
-    function SettingRow({ label, description, control }) {
+    function SettingRow({ label, description, control, onClick, expanded }) {
       return jsxs('div', {
         className: 'dsh-backup-setting-row',
+        role: onClick ? 'button' : undefined,
+        tabIndex: onClick ? 0 : undefined,
+        'aria-expanded': onClick ? Boolean(expanded) : undefined,
+        onClick,
+        onKeyDown: onClick ? event => {
+          if (event.target !== event.currentTarget) return
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onClick(event) }
+        } : undefined,
         children: [
           jsxs('div', {
             className: 'dsh-backup-setting-text',
@@ -469,113 +485,58 @@ window.__ModuleLoader__.load({
     // ---- components/RestoreOverlay.jsx ----
 
 
-    /** 一键还原确认与进度浮层；锚定导入按钮的小卡片，校验与恢复由服务端真实执行。 */
+    /** 一键还原：导入行内展开的提示与步骤，校验与恢复由服务端真实执行。 */
     const PHASES = ['backupRestorePhaseVerify', 'backupRestorePhaseFiles', 'backupRestorePhaseModules', 'backupRestorePhaseDone']
-    const WIDTH = 300
 
-    function RestoreOverlay({ t, open, phase, anchor, result, error, fileName, onConfirm, onClose }) {
-      const cardRef = useRef(null)
-      const [pos, setPos] = useState(null)
+    function RestoreOverlay({ t, open, phase, result, error, onClose }) {
       const done = phase >= PHASES.length - 1
       const failed = phase === -2
       const busy = phase >= 0 && !done && !failed
 
-      useLayoutEffect(() => {
-        if (!open || !anchor) { setPos(null); return }
-        const update = () => {
-          const rect = anchor.getBoundingClientRect()
-          const h = cardRef.current?.offsetHeight || 200
-          let left = rect.right + 8
-          if (left + WIDTH > window.innerWidth - 16) left = Math.max(16, rect.left - WIDTH - 8)
-          const top = Math.min(Math.max(16, rect.top), Math.max(16, window.innerHeight - 16 - h))
-          setPos(prev => prev && prev.top === top && prev.left === left ? prev : { top, left })
-        }
-        update()
-        window.addEventListener('scroll', update, true)
-        window.addEventListener('resize', update)
-        return () => {
-          window.removeEventListener('scroll', update, true)
-          window.removeEventListener('resize', update)
-        }
-      }, [open, anchor, phase])
-
-      // 点击外部关闭；延后一帧挂载，避免打开浮层的那次 pointerdown 立刻关掉。
+      // 进度中不响应 Esc，避免长任务被误关。
       useEffect(() => {
-        if (!open || pos === null) return undefined
-        let remove = () => {}
-        const frame = requestAnimationFrame(() => {
-          const onPointerDown = event => {
-            if (busy || cardRef.current?.contains(event.target) || anchor?.contains(event.target)) return
-            onClose()
-          }
-          document.addEventListener('pointerdown', onPointerDown, true)
-          remove = () => document.removeEventListener('pointerdown', onPointerDown, true)
-        })
-        return () => { cancelAnimationFrame(frame); remove() }
-      }, [open, pos, busy, anchor, onClose])
+        if (!open) return undefined
+        const onKeyDown = event => { if (event.key === 'Escape' && !busy) onClose() }
+        document.addEventListener('keydown', onKeyDown)
+        return () => document.removeEventListener('keydown', onKeyDown)
+      }, [open, busy, onClose])
 
-      if (!open || pos === null) return null
-      const confirming = phase < 0
+      if (!open) return null
+      const plugins = result?.plugins ?? {}
+      const installFailed = plugins.failed?.length ?? 0
       const summary = result
         ? t('backupRestoreSummary')
             .replace('{added}', String(result.written ?? 0))
             .replace('{overwritten}', String(result.overwritten ?? 0))
-        : t('backupRestoreDone')
-      return jsx('div', {
-        ref: cardRef,
-        role: 'dialog',
-        'aria-label': t('backupRestoreTitle'),
-        className: 'dsh-backup-restore-card',
-        style: { position: 'fixed', top: pos.top, left: pos.left, zIndex: 10000, width: WIDTH, boxSizing: 'border-box', border: '1px solid var(--dsw-alias-border-l2, rgba(128,128,128,.35))' },
+            .replace('{installed}', String(plugins.installed ?? 0)) +
+          (installFailed > 0 ? t('backupRestorePluginFailed').replace('{count}', String(installFailed)) : '')
+        : ''
+      return jsxs('div', {
+        className: 'dsh-backup-restore-panel',
         children: [
-          jsx('div', { className: 'dsh-backup-modal-title', children: t('backupRestoreTitle') }, 'title'),
-          jsx('p', { className: 'dsh-backup-modal-desc', children: t('backupRestoreBody') }, 'desc'),
-          fileName ? jsx('p', { className: 'dsh-backup-modal-file', title: fileName, children: t('backupRestoreSelected') + '：' + fileName }, 'selected') : null,
-          failed
-            ? jsxs('div', {
-                className: 'dsh-backup-modal-actions',
+          jsx('ul', {
+            className: 'dsh-backup-restore-steps',
+            children: PHASES.map((key, i) => {
+              const finished = i < phase || done
+              return jsxs('li', {
+                className: 'dsh-backup-restore-step' + (finished ? ' is-done' : '') + (i === phase && !done ? ' is-active' : ''),
                 children: [
-                  jsx('span', { className: 'dsh-backup-modal-done', style: { color: '#f87171' }, children: t('backupRestoreFailed') + '：' + (error || '') }, 'failed-note'),
-                  jsx('button', { type: 'button', className: 'dsh-plugins-btn', onClick: onClose, children: t('backupRestoreClose') }, 'close'),
+                  jsx('span', { className: 'dsh-backup-restore-dot', children: finished ? '✓' : '' }, 'dot-' + i),
+                  jsx('span', { children: t(key) }, 'label-' + i),
                 ],
-              }, 'failed-actions')
-            : confirming
-              ? jsxs('div', {
-                  className: 'dsh-backup-modal-actions',
-                  children: [
-                    jsx('button', { type: 'button', className: 'dsh-plugins-btn dsh-plugins-btn-cancel', onClick: onClose, children: t('backupRestoreCancel') }, 'cancel'),
-                    jsx('button', { type: 'button', className: 'dsh-plugins-btn', onClick: onConfirm, disabled: !fileName, children: t('backupRestoreConfirm') }, 'confirm'),
-                  ],
-                }, 'actions')
-              : jsxs('div', {
-                  className: 'dsh-backup-modal-body',
-                  children: [
-                    jsxs('ul', {
-                      className: 'dsh-backup-restore-steps',
-                      children: PHASES.map((key, i) => {
-                        const finished = i < phase || done
-                        return jsxs('li', {
-                          className: 'dsh-backup-restore-step' + (finished ? ' is-done' : '') + (i === phase && !done ? ' is-active' : ''),
-                          children: [
-                            jsx('span', { className: 'dsh-backup-restore-dot', children: finished ? '✓' : '' }, 'dot-' + i),
-                            jsx('span', { children: t(key) }, 'label-' + i),
-                          ],
-                        }, 'step-' + i)
-                      }),
-                    }, 'steps'),
-                    done
-                      ? jsxs('div', {
-                          className: 'dsh-backup-modal-actions',
-                          children: [
-                            jsx('span', { className: 'dsh-backup-modal-done', children: summary }, 'done-note'),
-                            jsx('button', { type: 'button', className: 'dsh-plugins-btn', onClick: onClose, children: t('backupRestoreClose') }, 'close'),
-                          ],
-                        }, 'done-actions')
-                      : null,
-                  ],
-                }, 'body'),
+              }, 'step-' + i)
+            }),
+          }, 'steps'),
+          failed ? jsx('p', { className: 'dsh-backup-restore-error', role: 'alert', children: t('backupRestoreFailed') + '：' + (error || '') }, 'error') : null,
+          done ? jsxs('div', {
+            className: 'dsh-backup-restore-result',
+            children: [
+              jsx('span', { className: 'dsh-backup-restore-summary', children: summary }, 'summary'),
+              jsx('p', { className: 'dsh-backup-restart', children: t('backupRestoreRestart') }, 'restart'),
+            ],
+          }, 'result') : null,
         ],
-      }, 'card')
+      })
     }
 
     // ---- components/DisclosureRow.jsx ----
@@ -624,8 +585,7 @@ window.__ModuleLoader__.load({
     const BACKUP_PRESET_ROUTE = '/api/starlong/dsh-backup/preset'
     const BACKUP_REVEAL_ROUTE = '/api/starlong/dsh-backup/reveal'
     const BACKUP_VERSIONS_ROUTE = '/api/starlong/dsh-backup/versions'
-    const BACKUP_VERIFY_ROUTE = '/api/starlong/dsh-backup/verify'
-    const BACKUP_RESTORE_ROUTE = '/api/starlong/dsh-backup/restore'
+    const BACKUP_RESTORE_STREAM_ROUTE = '/api/starlong/dsh-backup/restore-stream'
     const BACKUP_UPLOAD_ROUTE = '/api/starlong/dsh-backup/upload'
 
     /** 把根绝对路径端点挂到页面 base 下，兼容带路径前缀的反向代理。 */
@@ -726,13 +686,19 @@ window.__ModuleLoader__.load({
       const [presetDraft, setPresetDraft] = useState('')
       const [loading, setLoading] = useState(false)
       const [exporting, setExporting] = useState(false)
+      const [exportOpen, setExportOpen] = useState(false)
+      const [exportPassword, setExportPassword] = useState('')
+      const [exportConfirm, setExportConfirm] = useState('')
+      const [exportError, setExportError] = useState('')
       const [backingUp, setBackingUp] = useState(false)
       const [restoreOpen, setRestoreOpen] = useState(false)
       const [restorePhase, setRestorePhase] = useState(-1)
       const [restoreResult, setRestoreResult] = useState(null)
       const [restoreError, setRestoreError] = useState('')
       const [restoreFileName, setRestoreFileName] = useState('')
-      const [importAnchor, setImportAnchor] = useState(null)
+      const [restorePassword, setRestorePassword] = useState('')
+      const [restoreStarted, setRestoreStarted] = useState(false)
+      const restoreStartedRef = useRef(false)
       const fileInputRef = useRef(null)
       const restoreFileRef = useRef(null)
       const [versions, setVersions] = useState({ count: 0, latest: null })
@@ -794,6 +760,42 @@ window.__ModuleLoader__.load({
         if (!res.ok || data?.ok !== true) throw new Error(data?.error || String(res.status))
         return data
       }
+      const streamRestore = async (payload, onStage) => {
+        const res = await fetch(resolveApiUrl(BACKUP_RESTORE_STREAM_ROUTE), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'accept': 'text/event-stream', [BACKUP_TOKEN_HEADER]: '1' },
+          body: JSON.stringify(payload),
+        })
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          throw new Error(data?.error || String(res.status))
+        }
+        const reader = res.body?.getReader?.()
+        if (!reader) throw new Error('当前环境不支持流式读取')
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let finalResult = null
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+          let at
+          while ((at = buffer.indexOf('\n\n')) >= 0) {
+            const block = buffer.slice(0, at)
+            buffer = buffer.slice(at + 2)
+            const lines = block.split('\n')
+            const event = (lines.find(line => line.startsWith('event:')) || '').slice(6).trim() || 'message'
+            const raw = (lines.find(line => line.startsWith('data:')) || '').slice(5).trim()
+            if (!raw) continue
+            const data = JSON.parse(raw)
+            if (event === 'stage') onStage?.(data.phase)
+            else if (event === 'done') finalResult = data.result
+            else if (event === 'error') throw new Error(data.error || '还原失败')
+          }
+        }
+        if (!finalResult) throw new Error('还原结束但未返回结果')
+        return finalResult
+      }
       const loadVersions = async () => {
         try {
           const data = await request(BACKUP_VERSIONS_ROUTE, {})
@@ -806,8 +808,11 @@ window.__ModuleLoader__.load({
         const input = event?.target
         const file = input?.files?.[0]
         if (input) input.value = ''
+        restoreStartedRef.current = false
+        setRestoreStarted(false)
         if (!file) return
         if (!/\.zip$/i.test(file.name || '')) {
+          restoreFileRef.current = null
           setRestoreFileName('')
           setRestoreError('请选择 zip 备份文件')
           setRestoreResult(null)
@@ -822,18 +827,36 @@ window.__ModuleLoader__.load({
         setRestorePhase(-1)
         setRestoreOpen(true)
       }
+      const toggleRestoreRow = () => {
+        if (restoreOpen) {
+          if (restoreBusy) return
+          setRestoreOpen(false)
+          return
+        }
+        restoreFileRef.current = null
+        restoreStartedRef.current = false
+        setRestoreFileName('')
+        setRestorePassword('')
+        setRestoreStarted(false)
+        setRestoreError('')
+        setRestoreResult(null)
+        setRestorePhase(-1)
+        setRestoreOpen(true)
+      }
       const runRestore = async () => {
         const file = restoreFileRef.current
-        if (!file) return
+        if (!file || restoreStartedRef.current) return
+        restoreStartedRef.current = true
+        setRestoreStarted(true)
         setRestoreError('')
         setRestoreResult(null)
         setRestorePhase(0)
         try {
           const uploaded = await uploadFile(file)
           const payload = { path: uploaded.path }
-          await request(BACKUP_VERIFY_ROUTE, payload)
-          setRestorePhase(1)
-          const result = await request(BACKUP_RESTORE_ROUTE, payload)
+          const result = await streamRestore(payload, phase => {
+            if (phase < 3) setRestorePhase(phase)
+          })
           setRestoreResult(result)
           setRestorePhase(3)
         } catch (e) {
@@ -841,9 +864,11 @@ window.__ModuleLoader__.load({
           setRestorePhase(-2)
         } finally {
           restoreFileRef.current = null
+          restoreStartedRef.current = false
         }
       }
       const closeRestore = () => { setRestoreOpen(false) }
+      const restoreBusy = restoreStarted && restorePhase < 3
       useEffect(() => {
         const active = state.preset || ''
         if (active && active !== presetName) {
@@ -966,6 +991,19 @@ window.__ModuleLoader__.load({
         } catch (e) { setError(e?.message || '') }
         finally { setExporting(false) }
       }
+      const toggleExportRow = () => {
+        if (exporting) return
+        if (exportOpen) { setExportOpen(false); return }
+        setExportPassword('')
+        setExportConfirm('')
+        setExportError('')
+        setExportOpen(true)
+      }
+      const confirmExport = () => {
+        if (exportPassword !== exportConfirm) { setExportError(t('backupPasswordMismatch')); return }
+        setExportError('')
+        void runExport()
+      }
       const runBackupNow = async () => {
         if (backingUp) return
         setBackingUp(true)
@@ -1074,7 +1112,7 @@ window.__ModuleLoader__.load({
             description: t('backupSyncDesc'),
             open: !!sectionOpen.sync,
             onToggle: () => toggleSection('sync'),
-            actionLabel: sectionOpen.sync ? t('backupCollapse') : t('backupEdit'),
+            actionLabel: sectionOpen.sync ? t('backupRestoreClose') : t('backupEdit'),
             children: jsxs('div', {
               className: 'dsh-backup-sync-body',
               children: [
@@ -1096,7 +1134,7 @@ window.__ModuleLoader__.load({
             description: t('backupListDesc'),
             open: !!sectionOpen.tree,
             onToggle: () => toggleSection('tree'),
-            actionLabel: sectionOpen.tree ? t('backupCollapse') : t('backupConfigure'),
+            actionLabel: sectionOpen.tree ? t('backupRestoreClose') : t('backupConfigure'),
             control: presetControl,
             children: jsxs('div', {
               className: 'dsh-backup-combined-body',
@@ -1202,42 +1240,126 @@ window.__ModuleLoader__.load({
             }, 'combined-body'),
           }, 'tree-disclosure'),
           jsx(SettingRow, {
-            label: t('backupExport'),
-            description: t('backupExportDesc'),
-            control: jsxs('div', {
-              className: 'dsh-backup-export-actions',
-              children: [
-                jsx(Button, {
-                  variant: 'ghost', size: 'sm',
-                  disabled: exporting || !state.writable,
-                  onClick: runExport,
-                  children: exporting ? t('backupExporting') : t('backupExportZip'),
-                }, 'export'),
-              ],
-            }, 'actions'),
+            label: t('backupExportTitle'),
+            control: exportOpen
+              ? jsx(Button, { variant: 'ghost', size: 'sm', disabled: exporting, onClick: toggleExportRow, children: t('backupRestoreClose') }, 'close')
+              : jsx(Button, { variant: 'ghost', size: 'sm', onClick: toggleExportRow, children: t('backupExport') }, 'export'),
           }, 'export-row'),
+          exportOpen ? jsxs('div', {
+            className: 'dsh-backup-restore-inline',
+            children: [
+              jsxs('div', {
+                className: 'dsh-backup-restore-fields',
+                children: [
+                  jsx('div', {
+                    className: 'dsh-backup-restore-field',
+                    children: [
+                      jsx('span', { className: 'dsh-backup-restore-label', children: t('backupPassword') }, 'password-label'),
+                      jsx('input', {
+                        type: 'password',
+                        className: 'dsh-backup-restore-input',
+                        placeholder: t('backupPasswordPlaceholder'),
+                        value: exportPassword,
+                        disabled: exporting,
+                        onChange: event => setExportPassword(event.target.value),
+                      }, 'password-input'),
+                    ],
+                  }, 'password-field'),
+                  jsx('div', {
+                    className: 'dsh-backup-restore-field',
+                    children: [
+                      jsx('span', { className: 'dsh-backup-restore-label', children: t('backupPasswordConfirm') }, 'confirm-label'),
+                      jsx('input', {
+                        type: 'password',
+                        className: 'dsh-backup-restore-input',
+                        placeholder: t('backupPasswordPlaceholder'),
+                        value: exportConfirm,
+                        disabled: exporting,
+                        onChange: event => setExportConfirm(event.target.value),
+                      }, 'confirm-input'),
+                    ],
+                  }, 'confirm-field'),
+                ],
+              }, 'fields'),
+              exportError ? jsx('p', { className: 'dsh-backup-restore-error', role: 'alert', children: exportError }, 'error') : null,
+              jsx('div', {
+                className: 'dsh-backup-restore-actions',
+                children: [
+                  jsx(Button, { variant: 'ghost', size: 'sm', disabled: exporting, onClick: toggleExportRow, children: t('backupRestoreCancel') }, 'cancel'),
+                  jsx(Button, {
+                    variant: 'outline', size: 'sm', disabled: exporting || !state.writable,
+                    onClick: confirmExport,
+                    children: exporting ? t('backupExporting') : t('backupExport'),
+                  }, 'export'),
+                ],
+              }, 'actions'),
+            ],
+          }, 'export-inline') : null,
           jsx(SettingRow, {
-            label: t('backupImport'),
-            control: jsx('span', {
-              ref: setImportAnchor,
-              style: { display: 'inline-flex' },
-              children: [
-                jsx(Button, {
-                  variant: 'ghost', size: 'sm',
-                  disabled: restoreOpen,
-                  onClick: () => fileInputRef.current?.click(),
-                  children: t('backupImportZip'),
-                }, 'import'),
-                jsx('input', {
-                  ref: fileInputRef,
-                  type: 'file',
-                  accept: '.zip',
-                  style: { display: 'none' },
-                  onChange: pickRestoreFile,
-                }, 'file-input'),
-              ],
-            }, 'import-anchor'),
+            label: t('backupImportTitle'),
+            control: restoreOpen
+              ? jsx(Button, { variant: 'ghost', size: 'sm', disabled: restoreBusy, onClick: toggleRestoreRow, children: t('backupRestoreClose') }, 'close')
+              : jsx(Button, { variant: 'ghost', size: 'sm', onClick: toggleRestoreRow, children: t('backupImportZip') }, 'import'),
           }, 'import-row'),
+          restoreOpen ? jsxs('div', {
+            className: 'dsh-backup-restore-inline',
+            children: [
+              jsx('input', { ref: fileInputRef, type: 'file', accept: '.zip', style: { display: 'none' }, onChange: pickRestoreFile }, 'file-input'),
+              jsxs('div', {
+                className: 'dsh-backup-restore-fields',
+                children: [
+                  jsx('div', {
+                    className: 'dsh-backup-restore-field',
+                    children: [
+                      jsx('span', { className: 'dsh-backup-restore-label', children: t('backupRestoreFile') }, 'label'),
+                      jsx('span', { className: 'dsh-backup-restore-value', title: restoreFileName || undefined, children: restoreFileName || t('backupRestoreUnselected') }, 'value'),
+                      jsx(Button, { variant: 'ghost', size: 'sm', disabled: restoreBusy, onClick: () => fileInputRef.current?.click(), children: t('backupRestoreChoose') }, 'choose'),
+                    ],
+                  }, 'file-field'),
+                  jsx('div', {
+                    className: 'dsh-backup-restore-field',
+                    children: [
+                      jsx('span', { className: 'dsh-backup-restore-label', children: t('backupPassword') }, 'password-label'),
+                      jsx('input', {
+                        type: 'password',
+                        className: 'dsh-backup-restore-input',
+                        placeholder: t('backupPasswordPlaceholder'),
+                        value: restorePassword,
+                        disabled: restoreBusy,
+                        onChange: event => setRestorePassword(event.target.value),
+                      }, 'password-input'),
+                    ],
+                  }, 'password-field'),
+                ],
+              }, 'fields'),
+              jsx('p', { className: 'dsh-backup-restore-hint', children: t('backupRestoreBody') }, 'hint'),
+              !restoreStarted && restoreError ? jsx('p', { className: 'dsh-backup-restore-error', role: 'alert', children: restoreError }, 'pre-error') : null,
+              restoreStarted ? jsx(RestoreOverlay, {
+                t, open: restoreOpen, phase: restorePhase,
+                result: restoreResult, error: restoreError, onClose: closeRestore,
+              }, 'restore-overlay') : null,
+              restoreStarted ? null : jsx('div', {
+                className: 'dsh-backup-restore-actions',
+                children: [
+                  jsx(Button, { variant: 'ghost', size: 'sm', disabled: restoreBusy, onClick: closeRestore, children: t('backupRestoreCancel') }, 'cancel'),
+                  jsx(Button, {
+                    variant: 'outline', size: 'sm', disabled: restoreBusy,
+                    onClick: () => {
+                      if (!restoreFileRef.current) {
+                        setRestoreStarted(false)
+                        setRestoreResult(null)
+                        setRestorePhase(-1)
+                        setRestoreError(t('backupRestoreNeedFile'))
+                        return
+                      }
+                      void runRestore()
+                    },
+                    children: t('backupImport'),
+                  }, 'import'),
+                ],
+              }, 'footer'),
+            ],
+          }, 'restore-inline') : null,
           jsx(SettingRow, {
             label: t('backupAutoBackup'),
             description: t('backupAutoBackupDesc'),
@@ -1288,12 +1410,6 @@ window.__ModuleLoader__.load({
             }, 'backup-now'),
           }, 'version-row'),
           error ? jsx('p', { className: 'dsh-backup-form-note', role: 'alert', style: { ...STYLE.hint, color: '#f87171' }, children: t('backupError') + '：' + error }, 'error') : null,
-          jsx(RestoreOverlay, {
-            t, open: restoreOpen, phase: restorePhase, anchor: importAnchor,
-            result: restoreResult, error: restoreError, fileName: restoreFileName,
-            onConfirm: runRestore,
-            onClose: closeRestore,
-          }, 'restore-overlay'),
         ],
       })
     }

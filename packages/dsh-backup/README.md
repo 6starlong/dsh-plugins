@@ -18,9 +18,10 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 | 份数轮换 | 每次导出后按保留份数清理最旧的 zip，最少 3 份 |
 | 版本概览 | 只读列出备份份数与最近备份时间，显示为「x 份备份 · 最新 HH:MM」 |
 | 完整性校验 | 导出时给包内每个文件算 SHA256 写进 `_manifest.json`；校验时重算对比，发现篡改或损坏返回不符清单 |
-| 增量还原 | 校验通过后才写盘：同名文件以备份为准覆盖，备份里没有的原样保留，依赖目录整棵跳过，全程不删除；只读文件字节一致则跳过、不一致则临时解锁写回并恢复只读属性；按上传的临时 zip 还原（兼容 `backups` 内文件名） |
+| 增量还原 | 校验通过后才写盘：同名文件以备份为准覆盖，备份里没有的原样保留，依赖目录整棵跳过，全程不删除；会话投影缓存随 `storages` 入包，还原后标题不丢；`storages/workspace.json` 通过 DSH 官方 workspaceRegistry 实时同步运行态（保留当前默认工作区，按路径复用或创建工作区、备份会话覆盖冲突归属、按会话 cwd 并入已有工作区、不补建缺失目录）；zip 含 workspace.json 且非 dryRun 时没有官方注册表则拒绝还原，提示 workspaceRegistry unavailable；只读文件字节一致则跳过、不一致则临时解锁写回并恢复只读属性；按上传的临时 zip 还原（兼容 `backups` 内文件名） |
+| 依赖补齐 | 导出时把各 profile 的 `package.json` 依赖写进 `_manifest.json`；还原末尾用 DSH 内置 pnpm 对有依赖的 profile 执行一次 `install`，有锁文件加 `--frozen-lockfile`；完成后需重启 DSH 生效。进度由服务端按文件写入、依赖安装、完成三阶段实时推送，安装结束才打勾 |
 | 防滚雪球 | 备份产物 zip 硬排除，优先于任何勾选与正则；名称匹配的预设 JSON 强制注入包内，勾选与否都带 |
-| 访问控制 | 九个路由只认本机回环，除下载外均校验约定头与同源；预设名与下载文件名走白名单，包内相对路径仍拒绝越界 |
+| 访问控制 | 十个路由只认本机回环，除下载外均校验约定头与同源；预设名与下载文件名走白名单，包内相对路径仍拒绝越界 |
 | 导入选包 | 点「导入 ZIP」调系统文件选择器选任意目录的 zip，字节经本地回环流式上传为临时文件，按绝对路径校验并还原，结束即删；不依赖被会话接管的 `pathFor` |
 
 ## 判定顺序
@@ -39,7 +40,7 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 
 | 文件 | 职责 |
 |---|---|
-| `lib/index.js` | 装配模块，注册 export/download/tree/preset/reveal/versions/verify/restore/upload 九个本地路由，含自动备份调度 |
+| `lib/index.js` | 装配模块，注册 export/download/tree/preset/reveal/versions/verify/restore/restore-stream/upload 十个本地路由，含自动备份调度 |
 | `lib/rules.js` | 默认词表、匹配器、扫描树、目录树描述与统计 |
 | `lib/zip.js` | 零依赖 ZIP 读写（store 模式，单包上限 4 GiB），含解析校验用的 readZip |
 | `lib/config.js` | 配置 schema：enabled / repo / intervalHours / autoBackupHours / retention / preset |
@@ -56,7 +57,8 @@ DSH 备份模块：按黑名单规则扫描 `~/.dsh`，把需要保留的配置�
 | `/api/starlong/dsh-backup/reveal` | 调起系统文件管理器打开 backups 目录 |
 | `/api/starlong/dsh-backup/versions` | 只读返回备份份数与最近备份时间 |
 | `/api/starlong/dsh-backup/verify` | 校验备份包完整性，返回缺失/不符清单；支持 `path` 指定本地 zip，不传时按 `name`/latest 取最新一份 |
-| `/api/starlong/dsh-backup/restore` | 校验通过后增量还原；支持 `path` 绝对路径，`dryRun: true` 只列将写入的路径，不落盘 |
+| `/api/starlong/dsh-backup/restore` | 校验通过后增量还原，并按备份内 profile 依赖清单执行 pnpm install；支持 `path` 绝对路径，`dryRun: true` 只列将写入的路径、不落盘也不安装 |
+| `/api/starlong/dsh-backup/restore-stream` | 与 restore 同参，服务端用 SSE 按文件写入、依赖安装、完成推送真实阶段；安装完成才发 done，前端据此推进步骤 |
 | `/api/starlong/dsh-backup/upload` | 接收本地 zip 字节，流式写临时文件并返回绝对路径，校验/还原结束即删 |
 
 ## 配置

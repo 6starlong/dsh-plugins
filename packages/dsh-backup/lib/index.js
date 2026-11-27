@@ -4,7 +4,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto'
 import { chmod, mkdir, open, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { spawn } from 'node:child_process'
 import { buildMatcher, dshHome, describeChildren, scanTree, DEFAULT_PRESET } from './rules.js'
@@ -30,9 +30,12 @@ const REVEAL_ROUTE = '/api/starlong/dsh-backup/reveal'
 const VERSIONS_ROUTE = '/api/starlong/dsh-backup/versions'
 const VERIFY_ROUTE = '/api/starlong/dsh-backup/verify'
 const RESTORE_ROUTE = '/api/starlong/dsh-backup/restore'
+const RESTORE_STREAM_ROUTE = '/api/starlong/dsh-backup/restore-stream'
 const UPLOAD_ROUTE = '/api/starlong/dsh-backup/upload'
 const UPLOAD_PREFIX = 'dsh-backup-upload-'
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
+const PROFILE_NAME = /^[A-Za-z0-9_-]{1,64}$/
+const PLUGIN_INSTALL_TIMEOUT_MS = 10 * 60 * 1000
 
 /** volatile 代理取真实值。 */
 function unwrap(raw, fallback) {
@@ -178,6 +181,92 @@ async function collectPresetEntries(home) {
   return entries
 }
 
+/** 导出时记录各 profile 的包依赖，供还原后按锁文件补齐 node_modules。 */
+async function collectPluginProfiles(home) {
+  const profiles = []
+  let names
+  try { names = await readdir(join(home, 'profiles')) } catch { return profiles }
+  for (const name of names) {
+    if (!PROFILE_NAME.test(name)) continue
+    try {
+      const pkg = JSON.parse(await readFile(join(home, 'profiles', name, 'package.json'), 'utf8'))
+      const deps = pkg !== null && typeof pkg === 'object' && pkg.dependencies !== null && typeof pkg.dependencies === 'object' ? pkg.dependencies : {}
+      profiles.push({ name, dependencies: deps })
+    } catch { /* 没有可读 package.json 的 profile 跳过 */ }
+  }
+  return profiles
+}
+
+/** DSH 桌面内置 pnpm：启动方式与 CLI 一致，但不写 profile 的 pnpm-lock.yaml。 */
+function resolvePnpmLauncher() {
+  const fromEnv = process.env.DSH_PNPM_MJS
+  const resources = process.resourcesPath
+  const entry = typeof fromEnv === 'string' && fromEnv !== ''
+    ? fromEnv
+    : typeof resources === 'string' && resources !== ''
+      ? join(resources, 'runtime', 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs')
+      : null
+  if (entry === null) return null
+  const bin = typeof resources === 'string' && resources !== '' ? join(resources, 'runtime', 'bin') : dirname(entry)
+  return {
+    command: process.execPath,
+    args: ['--expose-internals', entry],
+    env: {
+      ...process.env,
+      ELECTRON_RUN_AS_NODE: '1',
+      DSH_DESKTOP_NODE_EXECUTABLE: process.execPath,
+      PATH: bin + delimiter + (process.env.PATH ?? ''),
+    },
+  }
+}
+
+function runInstallCommand(command, args, options) {
+  return new Promise(resolve => {
+    let child
+    try { child = spawn(command, args, options) } catch (error) { resolve({ ok: false, error: error?.message || String(error) }); return }
+    let output = ''
+    let settled = false
+    const finish = value => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(value)
+    }
+    const timer = setTimeout(() => { child.kill?.(); finish({ ok: false, error: 'install timeout' }) }, PLUGIN_INSTALL_TIMEOUT_MS)
+    child.stdout?.on?.('data', chunk => { output += chunk })
+    child.stderr?.on?.('data', chunk => { output += chunk })
+    child.on?.('error', error => finish({ ok: false, error: error?.message || String(error) }))
+    child.on?.('close', code => finish({ ok: code === 0, error: code === 0 ? '' : (output.trim().slice(-500) || 'exit ' + code) }))
+  })
+}
+
+/** 还原末尾按备份时的 profile 依赖清单执行一次 pnpm install，缺哪些补哪些。 */
+export async function installProfilePlugins(home, profiles, runner = runInstallCommand) {
+  const result = { profiles: 0, installed: 0, failed: [], skipped: [] }
+  if (!Array.isArray(profiles) || profiles.length === 0) return result
+  const launcher = resolvePnpmLauncher()
+  if (launcher === null) {
+    result.skipped.push({ reason: 'pnpm launcher unavailable', profiles: profiles.length })
+    return result
+  }
+  for (const profile of profiles) {
+    if (!profile || !PROFILE_NAME.test(profile.name)) continue
+    const deps = profile.dependencies
+    if (deps === null || typeof deps !== 'object' || Object.keys(deps).length === 0) {
+      result.skipped.push({ profile: profile.name, reason: 'no dependencies' })
+      continue
+    }
+    const cwd = join(home, 'profiles', profile.name)
+    const locked = await stat(join(cwd, 'pnpm-lock.yaml')).then(info => info.isFile()).catch(() => false)
+    const args = [...launcher.args, 'install', locked ? '--frozen-lockfile' : '--no-frozen-lockfile']
+    result.profiles++
+    const run = await runner(launcher.command, args, { cwd, env: launcher.env, windowsHide: true })
+    if (run.ok) result.installed += Object.keys(deps).length
+    else result.failed.push({ profile: profile.name, error: run.error })
+  }
+  return result
+}
+
 /** 扫描并写一份 zip 到指定目录（默认 backups），返回统计；手动导出与自动备份共用。 */
 async function createBackup(home, options, ctx, preset, outDirOverride) {
   const matcher = buildMatcher(DEFAULT_PRESET, options.regex)
@@ -196,6 +285,7 @@ async function createBackup(home, options, ctx, preset, outDirOverride) {
     overrides: options.overrides, regex: options.regex,
     stats: scanned.stats,
     excluded: scanned.excluded,
+    plugins: await collectPluginProfiles(home),
     checksums: {},
   }
   // 预设强制入包，不受勾选影响；按 rel 去重，避免 overrides 已纳入时重复条目。
@@ -207,7 +297,7 @@ async function createBackup(home, options, ctx, preset, outDirOverride) {
   const result = await writeZip(join(outDir, zipName), entries, undefined, (rel, data) => {
     if (rel !== '_manifest.json') manifest.checksums[rel] = createHash('sha256').update(data).digest('hex')
   })
-  return { name: zipName, bytes: result.bytes, ...scanned.stats, injectedPresets: injected.length }
+  return { name: zipName, bytes: result.bytes, ...scanned.stats, injectedPresets: injected.length, pluginProfiles: manifest.plugins.length }
 }
 
 /** 校验备份包完整性：对清单内每个文件重算 SHA256，返回缺失与不符清单。 */
@@ -258,6 +348,110 @@ async function resolveRestoreFile(home, request, body) {
   return name === null ? null : join(home, EXPORT_DIR, basename(name))
 }
 
+/** workspace.json 是域状态表：有官方注册表时实时同步运行态。 */
+function normalizeWorkspaceState(raw) {
+  let obj = null
+  try { obj = typeof raw === 'string' ? JSON.parse(raw) : raw } catch { obj = null }
+  const base = obj !== null && typeof obj === 'object' ? obj : {}
+  const tables = base.tables !== null && typeof base.tables === 'object' ? base.tables : {}
+  const workspaces = tables.workspaces !== null && typeof tables.workspaces === 'object' ? tables.workspaces : {}
+  const list = value => Array.isArray(value) ? [...new Set(value.filter(item => typeof item === 'string' && item !== ''))] : []
+  const records = {}
+  for (const [id, rec] of Object.entries(workspaces)) {
+    if (rec === null || typeof rec !== 'object') continue
+    records[id] = { ...rec, sessionIds: list(rec.sessionIds) }
+  }
+  return { tables: { ...tables, workspaces: records } }
+}
+
+function normalizeWorkspacePath(value) {
+  return typeof value === 'string' ? value.replace(/\//g, '\\').toLowerCase() : ''
+}
+
+async function collectSessionWorkdirs(home, entries) {
+  const grouped = new Map()
+  const add = (name, raw) => {
+    const cwd = raw?.record?.identity?.cwd
+    if (typeof cwd !== 'string' || cwd === '') return
+    const key = normalizeWorkspacePath(cwd)
+    if (!grouped.has(key)) grouped.set(key, { cwd, ids: [] })
+    grouped.get(key).ids.push(name)
+  }
+  if (Array.isArray(entries)) {
+    for (const entry of entries) {
+      const match = /^storages\/session_projcache\/sessions\/([^/]+)\.json$/i.exec(String(entry?.rel ?? '').replace(/\\/g, '/'))
+      if (!match) continue
+      try { add(match[1], JSON.parse(entry.data.toString('utf8'))) } catch { /* 投影缓存解析失败按缺失处理 */ }
+    }
+    return grouped
+  }
+  const dir = join(home, 'storages', 'session_projcache', 'sessions')
+  let names
+  try { names = await readdir(dir) } catch { return grouped }
+  for (const name of names) {
+    if (!name.endsWith('.json')) continue
+    try { add(name.slice(0, -5), JSON.parse(await readFile(join(dir, name), 'utf8'))) } catch { /* 投影缓存解析失败按缺失处理 */ }
+  }
+  return grouped
+}
+
+function getWorkspaceRegistry(ctx) {
+  try { return ctx.get?.('workspaceRegistry') ?? ctx.workspaceRegistry } catch { return undefined }
+}
+
+/** 官方注册表实时同步：按路径复用或创建工作区，备份会话覆盖冲突归属，不写 workspace.json。 */
+async function applyWorkspaceRegistry(registry, backupBytes, home, entries) {
+  const backup = normalizeWorkspaceState(Buffer.isBuffer(backupBytes) ? backupBytes.toString('utf8') : backupBytes)
+  const current = (await registry.list?.()) ?? []
+  const owners = new Map()
+  for (const ws of current) for (const sid of ws.sessionIds ?? []) owners.set(sid, ws)
+  const byPath = new Map()
+  let touched = 0
+  for (const rec of Object.values(backup.tables.workspaces)) {
+    if (!rec || typeof rec.path !== 'string' || rec.path === '') continue
+    const info = await stat(rec.path).catch(() => null)
+    if (!info?.isDirectory()) continue
+    let ws
+    try { ws = await registry.resolveByPath?.(rec.path) } catch { ws = undefined }
+    if (!ws && typeof registry.create === 'function') {
+      try { ws = await registry.create(rec.path, rec.title) } catch { ws = undefined }
+    }
+    if (!ws) continue
+    byPath.set(normalizeWorkspacePath(rec.path), ws)
+    if (typeof rec.title === 'string' && typeof ws.setTitle === 'function' && rec.title !== ws.title) {
+      try { await ws.setTitle(rec.title) } catch { /* 同名冲突保留当前标题 */ }
+    }
+    for (const sid of rec.sessionIds) {
+      const owner = owners.get(sid)
+      if (owner && owner.id !== ws.id && typeof owner.detachSession === 'function') {
+        try { await owner.detachSession(sid) } catch { /* 会话已不在该工作区 */ }
+        owners.delete(sid)
+      }
+      if (!(ws.sessionIds ?? []).includes(sid) && typeof ws.attachSession === 'function') {
+        try { await ws.attachSession(sid) } catch { /* cwd 不匹配或会话不存在则跳过 */ }
+        owners.set(sid, ws)
+      }
+    }
+    touched++
+  }
+  for (const { cwd, ids } of (await collectSessionWorkdirs(home, entries)).values()) {
+    const ws = byPath.get(normalizeWorkspacePath(cwd))
+    if (!ws) continue
+    for (const sid of ids) {
+      const owner = owners.get(sid)
+      if (owner && owner.id !== ws.id && typeof owner.detachSession === 'function') {
+        try { await owner.detachSession(sid) } catch { /* 会话已不在该工作区 */ }
+        owners.delete(sid)
+      }
+      if (!(ws.sessionIds ?? []).includes(sid) && typeof ws.attachSession === 'function') {
+        try { await ws.attachSession(sid) } catch { /* cwd 不匹配或会话不存在则跳过 */ }
+        owners.set(sid, ws)
+      }
+    }
+  }
+  return touched
+}
+
 /** 上传产生的临时 zip：用于区分需要在校验/还原后清理的文件。 */
 function isUploadedTemp(filePath) {
   return resolve(dirname(filePath)) === resolve(tmpdir()) && basename(filePath).startsWith(UPLOAD_PREFIX)
@@ -273,7 +467,7 @@ function requestName(request, body) {
  * 增量还原：只写备份包里的文件，同名覆盖，不删除原有文件，依赖目录整棵跳过。
  * 校验不通过时一个字节都不写；dryRun 只返回将要写入的路径。
  */
-async function restoreBackup(filePath, home, dryRun) {
+async function restoreBackup(filePath, home, dryRun, onPhase, ctx) {
   let entries
   try {
     entries = readZip(await readFile(filePath))
@@ -287,12 +481,23 @@ async function restoreBackup(filePath, home, dryRun) {
   if (!verified.ok) {
     return { ok: false, code: 'integrity', error: 'integrity check failed', missing: verified.missing, mismatch: verified.mismatch }
   }
+  let manifest = null
+  const registry = getWorkspaceRegistry(ctx)
+  if (!dryRun && entries.some(entry => entry.rel === 'storages/workspace.json') && !registry) {
+    return { ok: false, code: 'workspace-registry', error: 'workspaceRegistry unavailable' }
+  }
+  try {
+    const meta = entries.find(entry => entry.rel === '_manifest.json')
+    if (meta) manifest = JSON.parse(meta.data.toString('utf8'))
+  } catch { manifest = null }
+  onPhase?.(1)
   const files = []
   let written = 0
   let overwritten = 0
   let skippedDependencies = 0
   let skippedConflicts = 0
   let skippedIdentical = 0
+  let workspaceMerged = 0
   for (const entry of entries) {
     if (entry.rel === '_manifest.json') continue
     const rel = safeRel(entry.rel)
@@ -301,6 +506,13 @@ async function restoreBackup(filePath, home, dryRun) {
     const target = join(home, rel)
     const current = await stat(target).catch(() => null)
     if (current?.isDirectory()) { skippedConflicts++; continue }
+    if (rel === 'storages/workspace.json' && !dryRun) {
+      workspaceMerged = await applyWorkspaceRegistry(registry, entry.data, home, entries)
+      files.push({ rel, action: current ? 'overwrite' : 'create' })
+      if (current) overwritten++
+      else written++
+      continue
+    }
     const readonly = Boolean(current) && (current.mode & 0o200) === 0
     if (readonly && current.size === entry.data.length &&
         createHash('sha256').update(await readFile(target)).digest('hex') === createHash('sha256').update(entry.data).digest('hex')) {
@@ -316,7 +528,14 @@ async function restoreBackup(filePath, home, dryRun) {
     if (current) overwritten++
     else written++
   }
-  return { ok: true, dryRun: Boolean(dryRun), total: files.length, written, overwritten, skippedDependencies, skippedConflicts, skippedIdentical, files }
+  onPhase?.(2)
+  const plugins = dryRun
+    ? { profiles: 0, installed: 0, failed: [], skipped: [{ reason: 'dryRun' }] }
+    : await installProfilePlugins(home, manifest?.plugins)
+  const result = { ok: plugins.failed.length === 0, dryRun: Boolean(dryRun), total: files.length, written, overwritten, skippedDependencies, skippedConflicts, skippedIdentical, workspaceMerged, files, plugins }
+  if (!result.ok) { result.code = 'install'; result.error = 'plugin install failed' }
+  onPhase?.(3, result)
+  return result
 }
 
 /** 命名预设只在 backups/presets 下读写，名称白名单防路径穿越。 */
@@ -347,7 +566,7 @@ function safeRel(value) {
 }
 
 /**
- * 装配模块。只注册导出/下载/树/预设/打开目录/版本/校验/还原/上传路由；开关关闭时不注册。
+ * 装配模块。只注册导出/下载/树/预设/打开目录/版本/校验/还原/流式还原/上传路由；开关关闭时不注册。
  * @param {import('@deepseek-ai/cordis').Context} ctx - 宿主上下文。
  * @param {unknown} config - 套件 config。
  */
@@ -542,7 +761,7 @@ export function apply(ctx, config) {
       let status
       let payload
       try {
-        payload = await restoreBackup(filePath, home, body?.dryRun === true)
+        payload = await restoreBackup(filePath, home, body?.dryRun === true, undefined, ctx)
         status = payload.ok ? 200 : 409
       } catch (error) {
         ctx.logger?.warn?.('[dsh-plugins] 还原失败：' + (error?.message || String(error)))
@@ -552,6 +771,40 @@ export function apply(ctx, config) {
         if (uploaded) await unlink(filePath).catch(() => {})
       }
       sendJson(response, status, payload)
+    }
+
+    /** 流式还原：文件写入与依赖安装由服务端按真实阶段推送，安装完成才发 done。 */
+    const onRestoreStream = async (request, response) => {
+      if (rejectByConnection(ctx, request, response)) return
+      if (!isTrustedExport(request)) return sendJson(response, 403, { ok: false, error: 'forbidden' })
+      const body = await readJsonBody(request) ?? {}
+      const home = dshHome()
+      const filePath = await resolveRestoreFile(home, request, body)
+      if (filePath === null) return sendJson(response, 400, { ok: false, error: 'bad path' })
+      const uploaded = isUploadedTemp(filePath)
+      response?.writeHead?.(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-store',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      })
+      response?.flushHeaders?.()
+      const emit = (event, data) => {
+        response?.write?.('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n')
+      }
+      try {
+        const payload = await restoreBackup(filePath, home, body?.dryRun === true, phase => {
+          if (phase < 3) emit('stage', { phase })
+        }, ctx)
+        if (payload.ok) emit('done', { ok: true, result: payload })
+        else emit('error', { error: payload.error || '还原失败', code: payload.code, result: payload })
+      } catch (error) {
+        ctx.logger?.warn?.('[dsh-plugins] 还原失败：' + (error?.message || String(error)))
+        emit('error', { error: error?.message || String(error) })
+      } finally {
+        if (uploaded) await unlink(filePath).catch(() => {})
+        response?.end?.()
+      }
     }
 
     /** 启动即检查一次，之后每分钟复查：距最近备份满间隔就备一份；DSH 关闭时随 effect 停止。 */
@@ -591,6 +844,7 @@ export function apply(ctx, config) {
       webServer.register({ kind: 'exact', path: VERSIONS_ROUTE, handler: onVersions }),
       webServer.register({ kind: 'exact', path: VERIFY_ROUTE, handler: onVerify }),
       webServer.register({ kind: 'exact', path: RESTORE_ROUTE, handler: onRestore }),
+      webServer.register({ kind: 'exact', path: RESTORE_STREAM_ROUTE, handler: onRestoreStream }),
       webServer.register({ kind: 'exact', path: UPLOAD_ROUTE, handler: onUpload }),
     ]
     return () => {

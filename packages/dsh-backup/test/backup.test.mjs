@@ -43,17 +43,10 @@ describe('客户端底座目录', () => {
     expect(m('dsh-runtimes/dsh-primary-runtime/a.mjs', 'a.mjs', false)).toBe('clientDir:dsh-runtimes')
     expect(m('speech-to-text/sensevoice/tokens.txt', 'tokens.txt', false)).toBe('clientDir:speech-to-text')
   })
-  it('多级路径命中且不误伤插件内同名目录', () => {
+  it('projcache 随 storages 入包，形态规则不穿透', () => {
     const m = buildMatcher(DEFAULT_PRESET)
-    expect(m('storages/session_projcache/sessions/a.json', 'a.json', false)).toBe('clientDir:storages/session_projcache')
+    expect(m('storages/session_projcache/sessions/a.json', 'a.json', false)).toBe(null)
     expect(m('some-plugin/dsh-runtimes/a.json', 'a.json', false)).toBe(null)
-    expect(m('some-plugin/speech-to-text/a.json', 'a.json', false)).toBe(null)
-  })
-  it('归属层内置不可被预设覆盖', () => {
-    const m = buildMatcher({ clientDirs: 'foo', dataRoots: 'foo' })
-    expect(m('storages/session_projcache/a.json', 'a.json', false)).toBe('clientDir:storages/session_projcache')
-    expect(m('sessions/a.json', 'a.json', false)).toBe(null)
-    expect(m('foo/a.json', 'a.json', false)).toBe(null)
   })
   it('dsh 初始文件按归属判定', () => {
     const m = buildMatcher(DEFAULT_PRESET)
@@ -77,10 +70,6 @@ describe('归属优先', () => {
     const m = buildMatcher(DEFAULT_PRESET)
     expect(m('sessions/node_modules', 'node_modules', true)).toBe('dependency:node_modules')
     expect(m('profiles/desktop/node_modules/a.js', 'a.js', false)).toBe('dependency:node_modules')
-  })
-  it('数据根内底座目录优先排除', () => {
-    const m = buildMatcher(DEFAULT_PRESET)
-    expect(m('storages/session_projcache/sessions/a.json', 'a.json', false)).toBe('clientDir:storages/session_projcache')
   })
 })
 
@@ -280,7 +269,7 @@ describe('导出路由', () => {
       apply(ctx, config)
       const exportPath = '/api/starlong/dsh-backup/export'
       const downloadPath = '/api/starlong/dsh-backup/download'
-      expect(Object.keys(handlers).sort()).toEqual([downloadPath, exportPath, '/api/starlong/dsh-backup/preset', '/api/starlong/dsh-backup/tree', '/api/starlong/dsh-backup/reveal', '/api/starlong/dsh-backup/versions', '/api/starlong/dsh-backup/verify', '/api/starlong/dsh-backup/restore', '/api/starlong/dsh-backup/upload'].sort())
+      expect(Object.keys(handlers).sort()).toEqual([downloadPath, exportPath, '/api/starlong/dsh-backup/preset', '/api/starlong/dsh-backup/tree', '/api/starlong/dsh-backup/reveal', '/api/starlong/dsh-backup/versions', '/api/starlong/dsh-backup/verify', '/api/starlong/dsh-backup/restore', '/api/starlong/dsh-backup/restore-stream', '/api/starlong/dsh-backup/upload'].sort())
       const baseReq = {
         headers: { host: '127.0.0.1:51234', 'sec-fetch-site': 'same-origin' },
         socket: { remoteAddress: '127.0.0.1' },

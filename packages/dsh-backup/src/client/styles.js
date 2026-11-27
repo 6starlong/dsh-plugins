@@ -69,7 +69,6 @@ export const BACKUP_CSS = `
 .dsh-backup-preset-save-row + *{border-top:0.5px solid var(--dsw-alias-border-l1);padding-top:12px}
 .dsh-backup-disclosure-toggle{flex:none}
 .dsh-backup-muted{font-size:12px;color:var(--dsw-alias-label-secondary);padding:8px 0}
-.dsh-backup-export-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 .dsh-backup-segmented{display:inline-flex;align-items:center;gap:2px;padding:2px;border:0.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsh-backup-radius);background:var(--dsw-alias-bg-layer-1)}
 .dsh-backup-segment{box-sizing:border-box;min-width:46px;height:24px;padding:0 8px;border:0;border-radius:calc(var(--dsh-backup-radius) - 2px);background:transparent;color:var(--dsw-alias-label-secondary);font:inherit;font-size:13px;line-height:1;cursor:pointer}
 .dsh-backup-segment:hover:not(:disabled){background:var(--dsw-alias-bg-layer-2)}
@@ -112,20 +111,24 @@ span.dsh-backup-tree-action{cursor:default}
 .dsh-backup-tree-name{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px}
 .dsh-backup-tree-size{box-sizing:border-box;justify-self:end;width:96px;padding-right:12px;text-align:right;white-space:nowrap;opacity:.6;font-size:12px;font-variant-numeric:tabular-nums}
 @media (prefers-reduced-motion:reduce){.dsh-backup-tree-skeleton-icon,.dsh-backup-tree-skeleton-line{animation:none}}
-/* 一键还原浮层：锚定导入按钮的小卡片，无全屏遮罩；校验与恢复由服务端执行。 */
-.dsh-backup-restore-card{padding:16px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));border-radius:8px;background:var(--dsw-alias-bg-layer-3,rgba(32,32,32,.98));color:inherit;box-shadow:0 8px 24px rgba(0,0,0,.35)}
-.dsh-backup-modal-title{font-weight:600;font-size:15px;margin-bottom:8px}
-.dsh-backup-modal-desc{margin:0;opacity:.7;font-size:12px;line-height:1.6}
-.dsh-backup-modal-file{margin:8px 0 0;opacity:.9;font-size:12px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.dsh-backup-modal-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:16px}
-.dsh-backup-modal-done{margin-right:auto;opacity:.8;font-size:12px;min-width:0;line-height:1.5}
-.dsh-backup-restore-card .dsh-plugins-btn{flex:none;white-space:nowrap}
-.dsh-backup-restore-steps{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+/* 一键还原：导入行内展开，进度中不关闭；校验与恢复由服务端执行。 */
+.dsh-backup-restore-inline{margin:0 0 14px;padding:12px 0 12px 72px}
+.dsh-backup-restore-fields{display:flex;flex-direction:column;gap:10px}
+.dsh-backup-restore-field{display:flex;align-items:center;gap:8px;min-height:34px}
+.dsh-backup-restore-label{flex:none;width:52px;opacity:.7;font-size:13px}
+.dsh-backup-restore-value{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px}
+.dsh-backup-restore-input{flex:1;min-width:0;box-sizing:border-box;padding:4px 8px;border:1px solid var(--dsw-alias-border-l2,rgba(128,128,128,.35));border-radius:6px;background:transparent;color:inherit;font-size:13px}
+.dsh-backup-restore-hint{margin:8px 0 0;opacity:.7;font-size:12px;line-height:1.5}
+.dsh-backup-restore-error{margin:8px 0 0;color:#f87171;font-size:12px;line-height:1.5}
+.dsh-backup-restore-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:12px}
+.dsh-backup-restore-steps{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
 .dsh-backup-restore-step{display:flex;align-items:center;gap:10px;font-size:13px;opacity:.5}
 .dsh-backup-restore-step.is-active{opacity:1;font-weight:500}
 .dsh-backup-restore-step.is-done{opacity:.75}
 .dsh-backup-restore-dot{box-sizing:border-box;flex:none;width:18px;height:18px;border:1px solid var(--dsw-alias-border-l3,rgba(128,128,128,.5));border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px}
 .dsh-backup-restore-step.is-active .dsh-backup-restore-dot{border-color:var(--dsw-alias-text-muted,rgba(160,160,160,.9));background:transparent;color:inherit}
 .dsh-backup-restore-step.is-done .dsh-backup-restore-dot{border-color:var(--dsw-alias-state-success-primary,#10b981);color:var(--dsw-alias-state-success-primary,#10b981)}
-.dsh-backup-restore-card .dsh-plugins-btn:disabled{opacity:.5;cursor:not-allowed}
+.dsh-backup-restore-result{margin-top:12px}
+.dsh-backup-restore-summary{display:block;opacity:.8;font-size:12px;line-height:1.5}
+.dsh-backup-restart{margin:6px 0 0;color:var(--dsw-alias-state-warn-primary,#f59e0b);font-size:12px}
 `

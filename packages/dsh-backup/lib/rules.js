@@ -28,7 +28,7 @@ export function parseList(text) {
 /** 归属层（内置，不随预设变化）：依赖目录任意层级命中即排除。 */
 const DEPENDENCY_DIRS = parseList('node_modules,.git,__pycache__,.venv')
 /** 归属层：可确认的 DSH 客户端产物（目录或初始文件），从根匹配整棵排除，先于数据根判定。 */
-const CLIENT_PATHS = parseList('dsh-runtimes,speech-to-text,storages/session_projcache,.anonymous-user-id').map(s => s.replace(/^\/+|\/+$/g, ''))
+const CLIENT_PATHS = parseList('dsh-runtimes,speech-to-text,.anonymous-user-id').map(s => s.replace(/^\/+|\/+$/g, ''))
 /** 归属层：可确认的必要用户数据（目录或初始文件），从根匹配整棵保留，形态规则不穿透。 */
 const DATA_PATHS = parseList('sessions,attachments,profiles,storages,skills,.credentials.yaml').map(s => s.replace(/^\/+|\/+$/g, ''))
 
